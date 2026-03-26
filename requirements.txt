@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+alembic
+pydantic
+pydantic-settings
+python-multipart
+celery
+redis
+pgvector
+openai
+anthropic
+google-genai
+langchain-text-splitters
+pypdf

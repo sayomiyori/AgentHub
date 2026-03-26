@@ -1,0 +1,58 @@
+services:
+  app:
+    build: .
+    container_name: agenthub_app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8014:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/agenthub
+      REDIS_URL: redis://redis:6379/0
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_PROVIDER: gemini
+      LLM_MODEL: models/gemini-2.5-flash
+      EMBEDDING_MODEL: models/embedding-001
+    volumes:
+      - ./:/app
+    depends_on:
+      - postgres
+      - redis
+
+  celery_worker:
+    build: .
+    container_name: agenthub_worker
+    command: celery -A app.workers.embed_worker.celery_app worker --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/agenthub
+      REDIS_URL: redis://redis:6379/0
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_PROVIDER: gemini
+      EMBEDDING_MODEL: models/embedding-001
+    volumes:
+      - ./:/app
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agenthub_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: agenthub
+    ports:
+      - "55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./app/db/init:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7-alpine
+    container_name: agenthub_redis
+    ports:
+      - "56379:6379"
+
+volumes:
+  pgdata:

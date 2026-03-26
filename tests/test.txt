@@ -1,0 +1,5 @@
+Python is a high-level programming language. It was created by Guido van Rossum and first released in 1991. Python emphasizes code readability with its notable use of significant indentation. It supports multiple programming paradigms including structured, object-oriented and functional programming. Python is dynamically typed and garbage-collected. It has a large standard library.
+
+FastAPI is a modern web framework for building APIs with Python. It is based on standard Python type hints. FastAPI provides automatic API documentation, data validation, and high performance. It is built on top of Starlette for web handling and Pydantic for data validation.
+
+Django is a high-level Python web framework that encourages rapid development and clean, pragmatic design. Built by experienced developers, it takes care of much of the hassle of web development. Django follows the model-template-views architectural pattern.
