@@ -1,3 +1,4 @@
+import math
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends
@@ -13,6 +14,17 @@ from app.services.usage_tracker import attach_message_id
 router = APIRouter(prefix="/query", tags=["query"])
 pipeline = RAGPipeline()
 orchestrator = AgentOrchestrator()
+
+
+def _safe_float(v: object) -> float:
+    """PostgreSQL JSONB rejects NaN/Inf; normalize for storage."""
+    try:
+        x = float(v)  # type: ignore[arg-type]
+        if math.isnan(x) or math.isinf(x):
+            return 0.0
+        return x
+    except (TypeError, ValueError):
+        return 0.0
 
 
 class QueryRequest(BaseModel):
@@ -72,7 +84,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             {
                 "chunk_id": s.get("chunk_id"),
                 "document_title": s.get("document_title"),
-                "score": float(s.get("score", 0.0)),
+                "score": _safe_float(s.get("score", 0.0)),
             }
             for s in result.get("sources", [])
         ]
@@ -80,7 +92,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             {
                 "document_title": s.get("document_title"),
                 "chunk_text_preview": s.get("chunk_text_preview", ""),
-                "score": float(s.get("score", 0.0)),
+                "score": _safe_float(s.get("score", 0.0)),
             }
             for s in result.get("sources", [])
         ]
@@ -99,7 +111,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             {
                 "chunk_id": item["chunk_id"],
                 "document_title": item["document_title"],
-                "score": float(item["rerank_score"]),
+                "score": _safe_float(item.get("rerank_score", 0.0)),
             }
             for item in srcs
         ]
@@ -107,7 +119,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             {
                 "document_title": item["document_title"],
                 "chunk_text_preview": item["chunk_text"][:220],
-                "score": float(item["rerank_score"]),
+                "score": _safe_float(item.get("rerank_score", 0.0)),
             }
             for item in srcs
         ]
@@ -117,7 +129,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
         role=MessageRole.assistant,
         content=result["answer"],
         tokens_used=int(result.get("tokens_used") or 0),
-        cost_usd=float(result.get("cost_usd") or 0),
+        cost_usd=_safe_float(result.get("cost_usd") or 0),
         sources=source_payload,
     )
     db.add(assistant_message)
@@ -128,8 +140,8 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
     return {
         "answer": result["answer"],
         "sources": response_sources,
-        "tokens_used": result["tokens_used"],
-        "cost_usd": result["cost_usd"],
+        "tokens_used": int(result.get("tokens_used") or 0),
+        "cost_usd": _safe_float(result.get("cost_usd") or 0),
         "conversation_id": conversation.id,
         "tools_called": result.get("tools_called", []),
         "semantic_cache_hit": result.get("semantic_cache_hit"),

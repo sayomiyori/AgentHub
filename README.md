@@ -66,15 +66,26 @@ curl.exe -s -X POST "http://localhost:8014/api/v1/query" ^
   -d "{\"question\":\"What is this document about?\",\"use_agent\":false,\"provider\":\"gemini\",\"model\":\"models/gemini-2.5-flash\"}"
 ```
 
-**PowerShell:** use `-Depth 5` and UTF-8 so JSON is valid (otherwise you may see 500 or 422):
+**PowerShell** often breaks JSON encoding; prefer **`curl.exe`** (ships with Windows 10+):
+
+```powershell
+curl.exe -s -X POST "http://localhost:8014/api/v1/query" -H "Content-Type: application/json" --data-raw "{\"question\":\"What is FastAPI?\",\"use_agent\":false}"
+```
+
+Or with JSON in single quotes (no escaping of inner double quotes):
+
+```powershell
+curl.exe -s -X POST "http://localhost:8014/api/v1/query" -H "Content-Type: application/json" --data-raw '{"question":"What is FastAPI?","use_agent":false}'
+```
+
+If you use `Invoke-RestMethod`, define `$body` first, then call it in **one** command (parameters are not valid on their own lines):
 
 ```powershell
 $body = @{ question = "What is FastAPI?"; use_agent = $false } | ConvertTo-Json -Compress -Depth 5
-Invoke-RestMethod -Method POST -Uri "http://localhost:8014/api/v1/query" `
-  -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+Invoke-RestMethod -Method POST -Uri "http://localhost:8014/api/v1/query" -ContentType "application/json" -Body $body
 ```
 
-If you still get **500**, check `docker compose logs app --tail=80` (often a DB schema issue: restart the app after pulling code so `llm_usage_records` is created, or run `Base.metadata.create_all`).
+If `Invoke-RestMethod` reports **500**, `$resp1` is **not** updated (the number you print may be from an earlier run). Check `docker compose logs app --tail=80` for the traceback.
 
 ### Query (agent)
 
