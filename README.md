@@ -66,6 +66,16 @@ curl.exe -s -X POST "http://localhost:8014/api/v1/query" ^
   -d "{\"question\":\"What is this document about?\",\"use_agent\":false,\"provider\":\"gemini\",\"model\":\"models/gemini-2.5-flash\"}"
 ```
 
+**PowerShell:** use `-Depth 5` and UTF-8 so JSON is valid (otherwise you may see 500 or 422):
+
+```powershell
+$body = @{ question = "What is FastAPI?"; use_agent = $false } | ConvertTo-Json -Compress -Depth 5
+Invoke-RestMethod -Method POST -Uri "http://localhost:8014/api/v1/query" `
+  -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+```
+
+If you still get **500**, check `docker compose logs app --tail=80` (often a DB schema issue: restart the app after pulling code so `llm_usage_records` is created, or run `Base.metadata.create_all`).
+
 ### Query (agent)
 
 ```bash

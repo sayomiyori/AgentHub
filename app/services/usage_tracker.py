@@ -35,22 +35,25 @@ def record_llm_call(
         total_tokens=total,
         cost_usd=cost_usd,
     )
-    db.add(row)
     try:
-        db.flush()
+        # Savepoint so a failed usage insert (e.g. missing table) does not poison the outer transaction.
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
     except Exception as exc:
-        logger.warning("Failed to flush LLM usage record: %s", exc)
+        logger.warning("Failed to persist LLM usage record: %s", exc)
 
 
 def attach_message_id(db: Session, request_id: str, message_id: int) -> None:
     if not request_id:
         return
-    db.query(LLMUsageRecord).filter(LLMUsageRecord.request_id == request_id).update(
-        {LLMUsageRecord.message_id: message_id},
-        synchronize_session=False,
-    )
     try:
-        db.flush()
+        with db.begin_nested():
+            db.query(LLMUsageRecord).filter(LLMUsageRecord.request_id == request_id).update(
+                {LLMUsageRecord.message_id: message_id},
+                synchronize_session=False,
+            )
+            db.flush()
     except Exception as exc:
         logger.warning("Failed to attach message_id to usage rows: %s", exc)
 

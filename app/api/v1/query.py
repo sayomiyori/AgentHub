@@ -94,13 +94,14 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             conversation_id=conversation.id,
             request_id=request_id,
         )
+        srcs = result.get("sources") or []
         source_payload = [
             {
                 "chunk_id": item["chunk_id"],
                 "document_title": item["document_title"],
                 "score": float(item["rerank_score"]),
             }
-            for item in result["sources"]
+            for item in srcs
         ]
         response_sources = [
             {
@@ -108,15 +109,15 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
                 "chunk_text_preview": item["chunk_text"][:220],
                 "score": float(item["rerank_score"]),
             }
-            for item in result["sources"]
+            for item in srcs
         ]
 
     assistant_message = Message(
         conversation_id=conversation.id,
         role=MessageRole.assistant,
         content=result["answer"],
-        tokens_used=result["tokens_used"],
-        cost_usd=result["cost_usd"],
+        tokens_used=int(result.get("tokens_used") or 0),
+        cost_usd=float(result.get("cost_usd") or 0),
         sources=source_payload,
     )
     db.add(assistant_message)
