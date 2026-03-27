@@ -13,11 +13,21 @@ class RAGPipeline:
         self.reranker = SimpleReranker()
         self.generator = AnswerGenerator()
 
-    def ask(self, db: Session, question: str, top_k: int = 5) -> dict:
+    def ask(
+        self,
+        db: Session,
+        question: str,
+        top_k: int = 5,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> dict:
         query_embedding = self.embedder.embed_query(question)
         candidates = self.retriever.retrieve(db=db, query_embedding=query_embedding, top_k=max(top_k * 3, 10))
         reranked = self.reranker.rerank(candidates, top_k=top_k)
-        answer, used_chunks, usage = self.generator.generate(question=question, chunks=reranked)
+        answer, used_chunks, usage = self.generator.generate(
+            question=question, chunks=reranked, provider=provider, model=model
+        )
         return {
             "answer": answer,
             "sources": used_chunks,

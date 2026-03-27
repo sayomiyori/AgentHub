@@ -17,6 +17,14 @@ class QueryRequest(BaseModel):
     conversation_id: int | None = None
     top_k: int = Field(default=5, ge=1, le=20)
     use_agent: bool = True
+    provider: str | None = Field(
+        default=None,
+        description='LLM provider: "openai", "anthropic", or "gemini" (default from settings).',
+    )
+    model: str | None = Field(
+        default=None,
+        description="Model id (e.g. gpt-4o-mini, claude-3-5-haiku-20241022, models/gemini-2.5-flash).",
+    )
 
 
 def _get_or_create_conversation(db: Session, question: str, conversation_id: int | None) -> Conversation:
@@ -52,6 +60,8 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             question=payload.question,
             conversation_id=conversation.id,
             top_k=payload.top_k,
+            provider=payload.provider,
+            model=payload.model,
         )
         source_payload = [
             {
@@ -70,7 +80,13 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             for s in result.get("sources", [])
         ]
     else:
-        result = pipeline.ask(db=db, question=payload.question, top_k=payload.top_k)
+        result = pipeline.ask(
+            db=db,
+            question=payload.question,
+            top_k=payload.top_k,
+            provider=payload.provider,
+            model=payload.model,
+        )
         source_payload = [
             {
                 "chunk_id": item["chunk_id"],

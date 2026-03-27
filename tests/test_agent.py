@@ -7,6 +7,14 @@ import pytest
 
 from app.services.agent.tools.calculator import CalculatorTool
 from app.services.agent.tools.datetime_tool import DatetimeTool
+from app.services.llm.base import LLMResponse, LLMUsage
+
+
+def _llm_resp(text: str) -> LLMResponse:
+    return LLMResponse(
+        content=text,
+        usage=LLMUsage(input_tokens=100, output_tokens=100, cost_usd=0.0002),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -61,22 +69,26 @@ class TestDatetimeTool:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests: orchestrator with mocked Gemini
+# Integration tests: orchestrator with mocked LLM
 # ---------------------------------------------------------------------------
 
 class TestAgentUsesKnowledgeBase:
     """Verify that orchestrator calls search_knowledge_base tool when needed."""
 
-    def test_agent_uses_knowledge_base(self, mock_db: MagicMock, mock_gemini_response: MagicMock) -> None:
-        tool_call_resp = mock_gemini_response(json.dumps({
-            "type": "tool_call",
-            "tool_name": "search_knowledge_base",
-            "arguments": {"query": "FastAPI", "top_k": 3},
-        }))
-        final_resp = mock_gemini_response(json.dumps({
-            "type": "final",
-            "answer": "FastAPI is built on Starlette and Pydantic [chunk_id=2].",
-        }))
+    def test_agent_uses_knowledge_base(self, mock_db: MagicMock) -> None:
+        tool_call_resp = _llm_resp(
+            json.dumps({
+                "type": "tool_call",
+                "tool_name": "search_knowledge_base",
+                "arguments": {"query": "FastAPI", "top_k": 3},
+            })
+        )
+        final_resp = _llm_resp(
+            json.dumps({
+                "type": "final",
+                "answer": "FastAPI is built on Starlette and Pydantic [chunk_id=2].",
+            })
+        )
 
         kb_tool_result = {
             "query": "FastAPI",
@@ -91,11 +103,12 @@ class TestAgentUsesKnowledgeBase:
         }
 
         import importlib
+
         orch_mod = importlib.import_module("app.services.agent.orchestrator")
-        with patch.object(orch_mod, "genai") as mock_genai:
-            mock_client = MagicMock()
-            mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.side_effect = [tool_call_resp, final_resp]
+        with patch.object(orch_mod, "LLMFactory") as MockLF:
+            mock_factory = MagicMock()
+            MockLF.return_value = mock_factory
+            mock_factory.generate.side_effect = [tool_call_resp, final_resp]
 
             with patch("app.services.agent.tools.knowledge_base.KnowledgeBaseTool.run", return_value=kb_tool_result):
                 from app.services.agent.orchestrator import AgentOrchestrator
@@ -110,34 +123,41 @@ class TestAgentUsesKnowledgeBase:
         assert "FastAPI" in result["answer"]
         tool_names = [tc["tool"] for tc in result["tools_called"]]
         assert "search_knowledge_base" in tool_names
-        assert result["tokens_used"] == 200
+        assert result["tokens_used"] == 400
 
 
 class TestAgentMultiTool:
     """Verify chaining of multiple tools in one session."""
 
-    def test_multi_tool_chain(self, mock_db: MagicMock, mock_gemini_response: MagicMock) -> None:
-        calc_call = mock_gemini_response(json.dumps({
-            "type": "tool_call",
-            "tool_name": "calculator",
-            "arguments": {"expression": "3 * 7"},
-        }))
-        dt_call = mock_gemini_response(json.dumps({
-            "type": "tool_call",
-            "tool_name": "get_datetime",
-            "arguments": {"timezone": "UTC"},
-        }))
-        final = mock_gemini_response(json.dumps({
-            "type": "final",
-            "answer": "3 * 7 = 21 and today is some date.",
-        }))
+    def test_multi_tool_chain(self, mock_db: MagicMock) -> None:
+        calc_call = _llm_resp(
+            json.dumps({
+                "type": "tool_call",
+                "tool_name": "calculator",
+                "arguments": {"expression": "3 * 7"},
+            })
+        )
+        dt_call = _llm_resp(
+            json.dumps({
+                "type": "tool_call",
+                "tool_name": "get_datetime",
+                "arguments": {"timezone": "UTC"},
+            })
+        )
+        final = _llm_resp(
+            json.dumps({
+                "type": "final",
+                "answer": "3 * 7 = 21 and today is some date.",
+            })
+        )
 
         import importlib
+
         orch_mod = importlib.import_module("app.services.agent.orchestrator")
-        with patch.object(orch_mod, "genai") as mock_genai:
-            mock_client = MagicMock()
-            mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.side_effect = [calc_call, dt_call, final]
+        with patch.object(orch_mod, "LLMFactory") as MockLF:
+            mock_factory = MagicMock()
+            MockLF.return_value = mock_factory
+            mock_factory.generate.side_effect = [calc_call, dt_call, final]
 
             from app.services.agent.orchestrator import AgentOrchestrator
 
@@ -151,13 +171,13 @@ class TestAgentMultiTool:
         tool_names = [tc["tool"] for tc in result["tools_called"]]
         assert "calculator" in tool_names
         assert "get_datetime" in tool_names
-        assert result["tokens_used"] == 300
+        assert result["tokens_used"] == 600
 
 
 class TestConversationHistory:
     """Verify that existing messages from conversation are loaded into prompt."""
 
-    def test_history_included_in_prompt(self, mock_gemini_response: MagicMock) -> None:
+    def test_history_included_in_prompt(self) -> None:
         history_msg1 = MagicMock()
         history_msg1.role = MagicMock()
         history_msg1.role.value = "user"
@@ -176,23 +196,33 @@ class TestConversationHistory:
             history_msg1,
         ]
 
-        final_resp = mock_gemini_response(json.dumps({
-            "type": "final",
-            "answer": "Python was created by Guido van Rossum.",
-        }))
+        final_resp = _llm_resp(
+            json.dumps({
+                "type": "final",
+                "answer": "Python was created by Guido van Rossum.",
+            })
+        )
 
         captured_prompts: list[str] = []
 
-        def capture_generate(model: str, contents: str) -> MagicMock:
-            captured_prompts.append(contents)
+        def capture_generate(
+            messages: list,
+            *,
+            provider: str | None = None,
+            model: str | None = None,
+            temperature: float = 0.2,
+            tools: list | None = None,
+        ) -> LLMResponse:
+            captured_prompts.append(messages[0]["content"])
             return final_resp
 
         import importlib
+
         orch_mod = importlib.import_module("app.services.agent.orchestrator")
-        with patch.object(orch_mod, "genai") as mock_genai:
-            mock_client = MagicMock()
-            mock_genai.Client.return_value = mock_client
-            mock_client.models.generate_content.side_effect = capture_generate
+        with patch.object(orch_mod, "LLMFactory") as MockLF:
+            mock_factory = MagicMock()
+            MockLF.return_value = mock_factory
+            mock_factory.generate.side_effect = capture_generate
 
             from app.services.agent.orchestrator import AgentOrchestrator
 

@@ -12,13 +12,3 @@ def mock_db() -> MagicMock:
     return db
 
 
-@pytest.fixture()
-def mock_gemini_response():
-    """Factory that creates a mock Gemini response with given text."""
-    def _make(text: str) -> MagicMock:
-        resp = MagicMock()
-        resp.text = text
-        resp.usage_metadata = MagicMock()
-        resp.usage_metadata.total_token_count = 100
-        return resp
-    return _make

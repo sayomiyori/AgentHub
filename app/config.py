@@ -15,7 +15,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     llm_provider: str = Field(default="gemini", alias="LLM_PROVIDER")
     llm_model: str = Field(default="models/gemini-2.5-flash", alias="LLM_MODEL")
+    llm_fallback_provider: str = Field(default="", alias="LLM_FALLBACK_PROVIDER")
+    llm_fallback_model: str = Field(default="", alias="LLM_FALLBACK_MODEL")
     embedding_model: str = Field(default="models/embedding-001", alias="EMBEDDING_MODEL")
+
+    # JSON array: [{"name":"github","url":"https://..."}, ...] or leave empty
+    mcp_servers: str = Field(default="", alias="MCP_SERVERS")
+    mcp_servers_config: str = Field(default="", alias="MCP_SERVERS_CONFIG")
 
     database_url: str = Field(
         default="postgresql+psycopg://postgres:postgres@postgres:5432/agenthub",

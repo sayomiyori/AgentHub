@@ -17,3 +17,7 @@ pypdf
 requests
 pytest
 pytest-mock
+mcp
+pyyaml
+httpx
+sse-starlette
