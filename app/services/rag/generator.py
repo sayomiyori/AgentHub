@@ -1,5 +1,8 @@
+from sqlalchemy.orm import Session
+
 from app.models.usage import UsageMetrics
 from app.services.llm.factory import LLMFactory
+from app.services.usage_tracker import record_llm_call
 
 
 class AnswerGenerator:
@@ -35,6 +38,9 @@ class AnswerGenerator:
         *,
         provider: str | None = None,
         model: str | None = None,
+        db: Session | None = None,
+        conversation_id: int | None = None,
+        request_id: str | None = None,
     ) -> tuple[str, list[dict], UsageMetrics]:
         context = self._build_context(chunks)
         system_prompt = (
@@ -60,6 +66,18 @@ class AnswerGenerator:
             answer = resp.content or ""
             tokens_used = resp.usage.input_tokens + resp.usage.output_tokens
             cost_usd = resp.usage.cost_usd
+            if db is not None and conversation_id is not None and request_id:
+                record_llm_call(
+                    db,
+                    conversation_id=conversation_id,
+                    message_id=None,
+                    request_id=request_id,
+                    provider=resp.provider or "gemini",
+                    model=resp.model or "",
+                    input_tokens=resp.usage.input_tokens,
+                    output_tokens=resp.usage.output_tokens,
+                    cost_usd=float(cost_usd),
+                )
         except Exception:
             answer = self._fallback_answer(question, chunks)
             tokens_used = 0

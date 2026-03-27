@@ -17,6 +17,8 @@ class LLMResponse:
     content: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     usage: LLMUsage = field(default_factory=LLMUsage)
+    provider: str = ""
+    model: str = ""
 
 
 class LLMProvider(ABC):

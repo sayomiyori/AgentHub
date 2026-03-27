@@ -37,7 +37,13 @@ class WebSearchTool(BaseTool):
                 )
             for topic in payload.get("RelatedTopics", []):
                 if isinstance(topic, dict) and topic.get("Text"):
-                    items.append({"title": topic.get("Text", "")[:80], "snippet": topic["Text"], "url": topic.get("FirstURL", "")})
+                    items.append(
+                        {
+                            "title": topic.get("Text", "")[:80],
+                            "snippet": topic["Text"],
+                            "url": topic.get("FirstURL", ""),
+                        }
+                    )
                     if len(items) >= max_results:
                         break
             return {"query": query, "results": items[:max_results]}

@@ -31,7 +31,10 @@ class GeminiProvider(LLMProvider):
         use_model = model or settings.llm_model
         text = "\n\n".join(f"{m['role']}: {m['content']}" for m in messages)
         if tools:
-            text += "\n\n(Tools are defined but native Gemini tool binding is not used in this path; use JSON protocol in prompt.)"
+            text += (
+                "\n\n(Tools are defined but native Gemini tool binding is not used in this path; "
+                "use JSON protocol in prompt.)"
+            )
 
         response = self._client.models.generate_content(
             model=use_model,
@@ -51,4 +54,6 @@ class GeminiProvider(LLMProvider):
             content=answer,
             tool_calls=[],
             usage=LLMUsage(input_tokens=inp, output_tokens=out_t, cost_usd=cost),
+            provider="gemini",
+            model=use_model,
         )

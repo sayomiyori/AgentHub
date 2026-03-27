@@ -1,7 +1,10 @@
 import hashlib
+import time
+
+from google import genai
 
 from app.config import get_settings
-from google import genai
+from app.metrics import embedding_duration_seconds
 
 
 class GeminiEmbedder:
@@ -39,14 +42,18 @@ class GeminiEmbedder:
         return vectors
 
     def embed_query(self, query: str) -> list[float]:
-        if not self.client:
-            return self._fallback_embedding(query)
-
+        t0 = time.perf_counter()
         try:
-            response = self.client.models.embed_content(model=self.model, contents=query)
-            embeddings = getattr(response, "embeddings", None) or []
-            if embeddings and getattr(embeddings[0], "values", None):
-                return list(embeddings[0].values)
-            return self._fallback_embedding(query)
-        except Exception:
-            return self._fallback_embedding(query)
+            if not self.client:
+                return self._fallback_embedding(query)
+
+            try:
+                response = self.client.models.embed_content(model=self.model, contents=query)
+                embeddings = getattr(response, "embeddings", None) or []
+                if embeddings and getattr(embeddings[0], "values", None):
+                    return list(embeddings[0].values)
+                return self._fallback_embedding(query)
+            except Exception:
+                return self._fallback_embedding(query)
+        finally:
+            embedding_duration_seconds.observe(time.perf_counter() - t0)

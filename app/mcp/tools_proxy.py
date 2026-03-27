@@ -9,6 +9,13 @@ import anyio
 from app.services.agent.tools.base import BaseTool
 
 
+def _split_mcp_tool_name(name: str) -> tuple[str, str]:
+    if "__" in name:
+        a, b = name.split("__", 1)
+        return a or "mcp", b or "unknown"
+    return "mcp", name
+
+
 class MCPToolProxy(BaseTool):
     """Routes tool execution to an async MCP call_tool handler."""
 
@@ -25,6 +32,11 @@ class MCPToolProxy(BaseTool):
         self._call_fn = call_fn
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
+        srv, tname = _split_mcp_tool_name(self.name)
+        from app.metrics import mcp_tool_calls_total
+
+        mcp_tool_calls_total.labels(server=srv, tool=tname).inc()
+
         async def _run() -> Any:
             return await self._call_fn(self.name, kwargs)
 

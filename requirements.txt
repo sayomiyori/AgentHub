@@ -21,3 +21,4 @@ mcp
 pyyaml
 httpx
 sse-starlette
+prometheus-client

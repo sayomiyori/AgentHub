@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -6,6 +8,7 @@ from app.db.session import get_db
 from app.models.conversation import Conversation, Message, MessageRole
 from app.services.agent.orchestrator import AgentOrchestrator
 from app.services.rag_pipeline import RAGPipeline
+from app.services.usage_tracker import attach_message_id
 
 router = APIRouter(prefix="/query", tags=["query"])
 pipeline = RAGPipeline()
@@ -19,11 +22,11 @@ class QueryRequest(BaseModel):
     use_agent: bool = True
     provider: str | None = Field(
         default=None,
-        description='LLM provider: "openai", "anthropic", or "gemini" (default from settings).',
+        description='LLM provider: "gemini" (default), "openai", or "anthropic".',
     )
     model: str | None = Field(
         default=None,
-        description="Model id (e.g. gpt-4o-mini, claude-3-5-haiku-20241022, models/gemini-2.5-flash).",
+        description="Model id (e.g. models/gemini-2.5-flash, claude-3-5-haiku-20241022).",
     )
 
 
@@ -41,6 +44,7 @@ def _get_or_create_conversation(db: Session, question: str, conversation_id: int
 
 @router.post("")
 def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
+    request_id = str(uuid4())
     conversation = _get_or_create_conversation(db, payload.question, payload.conversation_id)
 
     user_message = Message(
@@ -62,6 +66,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             top_k=payload.top_k,
             provider=payload.provider,
             model=payload.model,
+            request_id=request_id,
         )
         source_payload = [
             {
@@ -86,6 +91,8 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             top_k=payload.top_k,
             provider=payload.provider,
             model=payload.model,
+            conversation_id=conversation.id,
+            request_id=request_id,
         )
         source_payload = [
             {
@@ -113,6 +120,8 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
         sources=source_payload,
     )
     db.add(assistant_message)
+    db.flush()
+    attach_message_id(db, request_id=request_id, message_id=assistant_message.id)
     db.commit()
 
     return {
@@ -122,4 +131,6 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
         "cost_usd": result["cost_usd"],
         "conversation_id": conversation.id,
         "tools_called": result.get("tools_called", []),
+        "semantic_cache_hit": result.get("semantic_cache_hit"),
+        "request_id": request_id,
     }

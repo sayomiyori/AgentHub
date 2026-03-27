@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.services.agent.tools.calculator import CalculatorTool
 from app.services.agent.tools.datetime_tool import DatetimeTool
 from app.services.llm.base import LLMResponse, LLMUsage
@@ -14,6 +12,8 @@ def _llm_resp(text: str) -> LLMResponse:
     return LLMResponse(
         content=text,
         usage=LLMUsage(input_tokens=100, output_tokens=100, cost_usd=0.0002),
+        provider="gemini",
+        model="models/gemini-2.5-flash",
     )
 
 
@@ -235,4 +235,6 @@ class TestConversationHistory:
 
         assert result["answer"] == "Python was created by Guido van Rossum."
         assert len(captured_prompts) == 1
-        assert "Tell me about Python" in captured_prompts[0] or "Python is a programming language" in captured_prompts[0]
+        assert "Tell me about Python" in captured_prompts[0] or (
+            "Python is a programming language" in captured_prompts[0]
+        )

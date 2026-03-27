@@ -17,6 +17,7 @@ services:
       MCP_SERVERS: ${MCP_SERVERS:-}
       LLM_MODEL: models/gemini-2.5-flash
       EMBEDDING_MODEL: models/embedding-001
+      SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-true}
     volumes:
       - ./:/app
     depends_on:

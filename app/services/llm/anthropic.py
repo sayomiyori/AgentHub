@@ -88,4 +88,6 @@ class AnthropicProvider(LLMProvider):
             content=content,
             tool_calls=tool_calls,
             usage=LLMUsage(input_tokens=inp, output_tokens=out_t, cost_usd=cost),
+            provider="anthropic",
+            model=use_model,
         )

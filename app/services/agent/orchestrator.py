@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.mcp.client import mcp_client_manager
-from app.models.conversation import Message, MessageRole
+from app.models.conversation import Message
 from app.services.agent.prompts.system import AGENT_SYSTEM_PROMPT
 from app.services.agent.tools.base import BaseTool
 from app.services.agent.tools.calculator import CalculatorTool
@@ -16,6 +16,7 @@ from app.services.agent.tools.knowledge_base import KnowledgeBaseTool
 from app.services.agent.tools.web_search import WebSearchTool
 from app.services.llm.factory import LLMFactory
 from app.services.rag_pipeline import RAGPipeline
+from app.services.usage_tracker import record_llm_call
 
 MAX_ITERATIONS = 5
 MAX_HISTORY_MESSAGES = 20
@@ -116,6 +117,7 @@ class AgentOrchestrator:
         top_k: int = 5,
         provider: str | None = None,
         model: str | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         tools_map = self._build_tools(db)
         history = self._load_history(db, conversation_id)
@@ -140,6 +142,18 @@ class AgentOrchestrator:
                 raw_text = resp.content or ""
                 total_tokens += resp.usage.input_tokens + resp.usage.output_tokens
                 total_cost += resp.usage.cost_usd
+                if request_id:
+                    record_llm_call(
+                        db,
+                        conversation_id=conversation_id,
+                        message_id=None,
+                        request_id=request_id,
+                        provider=resp.provider or "gemini",
+                        model=resp.model or "",
+                        input_tokens=resp.usage.input_tokens,
+                        output_tokens=resp.usage.output_tokens,
+                        cost_usd=float(resp.usage.cost_usd),
+                    )
             except Exception as exc:
                 return {
                     "answer": f"Agent error: {exc}",

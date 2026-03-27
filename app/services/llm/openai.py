@@ -71,4 +71,6 @@ class OpenAIProvider(LLMProvider):
             content=content,
             tool_calls=tcalls,
             usage=LLMUsage(input_tokens=inp, output_tokens=out_t, cost_usd=cost),
+            provider="openai",
+            model=use_model,
         )

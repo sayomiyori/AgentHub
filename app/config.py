@@ -28,6 +28,7 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
+    semantic_cache_enabled: bool = Field(default=True, alias="SEMANTIC_CACHE_ENABLED")
 
     upload_dir: str = "./uploads"
     max_preview_chars: int = 220
