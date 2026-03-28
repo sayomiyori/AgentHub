@@ -34,7 +34,7 @@ Data flow (direct RAG query): **upload** → chunk → **Gemini** embed → stor
 
 | Area | Description |
 |------|-------------|
-| **RAG** | Chunking, Gemini `embedding-001`, cosine retrieval, rerank, cited answers |
+| **RAG** | Chunking, Gemini `gemini-embedding-001` (3072d), cosine retrieval, rerank, cited answers |
 | **Agents** | JSON tool protocol: knowledge base, web search, calculator, datetime, **MCP tools** |
 | **MCP** | SSE server at `/mcp/sse`; optional external MCP servers via `MCP_SERVERS` |
 | **Multi-provider** | `LLMFactory`: Gemini (default), Anthropic, OpenAI; per-request `provider` / `model` |
@@ -63,7 +63,7 @@ curl.exe -s -X POST "http://localhost:8014/api/v1/documents" ^
 ```bash
 curl.exe -s -X POST "http://localhost:8014/api/v1/query" ^
   -H "Content-Type: application/json" ^
-  -d "{\"question\":\"What is this document about?\",\"use_agent\":false,\"provider\":\"gemini\",\"model\":\"models/gemini-2.5-flash\"}"
+  -d "{\"question\":\"What is this document about?\",\"use_agent\":false,\"provider\":\"gemini\",\"model\":\"models/gemini-2.0-flash\"}"
 ```
 
 **PowerShell** often breaks JSON encoding; prefer **`curl.exe`** (ships with Windows 10+):
@@ -119,7 +119,9 @@ Example response:
 curl.exe -s "http://localhost:8014/metrics"
 ```
 
-Relevant series: `llm_requests_total`, `llm_tokens_used_total`, `llm_cost_usd_total`, `semantic_cache_hit_ratio`, `rag_retrieval_duration_seconds`, `mcp_tool_calls_total`, …
+Relevant series: `llm_requests_total`, `llm_tokens_used_total`, `llm_cost_usd_total`, `semantic_cache_hit_ratio`, `rag_retrieval_duration_seconds`, `embedding_duration_seconds`, …
+
+Prometheus UI: `http://localhost:59090` · Grafana: `http://localhost:3005` (admin / admin)
 
 ## API reference (curl)
 
@@ -157,13 +159,15 @@ Or YAML file path in `MCP_SERVERS_CONFIG`. On startup, AgentHub connects over SS
 
 ## Screenshots
 
-Place images under `docs/images/` (examples):
-
-- `docs/images/agent-rag-query.png` — query with citations
-- `docs/images/agent-calculator.png` — agent tool use
-- `docs/images/conversation-history.png` — threaded chat
-
-Add a Grafana dashboard panel for `/metrics` to visualize `semantic_cache_hit_ratio` and `llm_cost_usd_total`.
+| Screenshot | Description |
+|---|---|
+| ![Swagger UI](docs/images/swagger-ui.png) | Swagger UI — full API reference |
+| ![RAG query result](docs/images/rag-query-result.png) | RAG query with citations |
+| ![Agent RAG](docs/images/agent-rag-query.png) | Agent using KB search tool |
+| ![Agent calculator](docs/images/agent-calculator.png) | Agent tool use — calculator |
+| ![Conversation history](docs/images/conversation-history.png) | Threaded conversation history |
+| ![Grafana dashboard](docs/images/grafana-dashboard.png) | Grafana: cache hit ratio, LLM latency, RAG/embed latency |
+| ![Prometheus metrics](docs/images/prometheus-metrics.png) | Prometheus: `semantic_cache_hit_ratio`, `llm_request_duration_seconds_count` |
 
 ## Environment
 
@@ -173,8 +177,8 @@ Add a Grafana dashboard panel for `/metrics` to visualize `semantic_cache_hit_ra
 | `DATABASE_URL` | PostgreSQL |
 | `REDIS_URL` | Celery + semantic cache |
 | `LLM_PROVIDER` | Default: `gemini` |
-| `LLM_MODEL` | e.g. `models/gemini-2.5-flash` |
-| `EMBEDDING_MODEL` | e.g. `models/embedding-001` |
+| `LLM_MODEL` | e.g. `models/gemini-2.0-flash` |
+| `EMBEDDING_MODEL` | e.g. `models/gemini-embedding-001` |
 | `SEMANTIC_CACHE_ENABLED` | `true` / `false` |
 | `MCP_SERVERS` | JSON list of `{name, url}` |
 | `LLM_FALLBACK_PROVIDER` | Fallback if primary fails |

@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import time
+from decimal import Decimal
 from typing import Any
 
 import redis
@@ -137,4 +138,9 @@ def set_cached_rag_answer(
     entries.append(entry)
     entries = entries[-MAX_ENTRIES_PER_BUCKET:]
 
-    r.setex(key, TTL_SECONDS, json.dumps(entries, ensure_ascii=False))
+    def _default(obj: object) -> object:
+        if isinstance(obj, Decimal):
+            return float(obj)
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+    r.setex(key, TTL_SECONDS, json.dumps(entries, ensure_ascii=False, default=_default))
