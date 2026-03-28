@@ -1,107 +1,204 @@
 # AgentHub
 
-AI platform with **RAG** (PostgreSQL + **pgvector**), **Celery** workers, **Gemini** embeddings and LLM, optional **agents** with tools, **MCP** server (SSE) and **multi-provider** LLM routing, plus **cost tracking** and **Prometheus** metrics.
+[![CI](https://github.com/sayomiyori/AgentHub/actions/workflows/ci.yml/badge.svg)](https://github.com/sayomiyori/AgentHub/actions)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](#)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](#)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](#)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white)](#)
+[![Celery](https://img.shields.io/badge/Celery-37814A?logo=celery&logoColor=white)](#)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](#)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white)](#)
+[![Gemini](https://img.shields.io/badge/Gemini_AI-4285F4?logo=google&logoColor=white)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+AI platform with **RAG pipeline** (pgvector + semantic search + reranking), **AI agents** with function calling, **MCP server** (SSE), **multi-provider LLM routing** (Gemini / Anthropic / OpenAI), **semantic cache**, **cost tracking**, and **Prometheus** metrics.
 
 ## Architecture
 
 ```
-                    +------------------+
-                    |   FastAPI :8014  |
-                    |  /api/v1/*       |
-                    |  /mcp (SSE)      |
-                    |  /metrics        |
-                    +--------+---------+
-                             |
-         +-------------------+-------------------+
-         |                   |                   |
-         v                   v                   v
- +---------------+   +---------------+   +---------------+
- |  PostgreSQL   |   |    Redis      |   | MCP clients   |
- |  + pgvector   |   | semantic cache|   | (optional ext)|
- |  + llm_usage  |   | Celery broker |   +---------------+
- +---------------+   +---------------+
-         ^
-         |
- +---------------+
- | Celery worker |
- | (embeddings)  |
- +---------------+
+┌──────────┐     ┌──────────────────┐     ┌───────────────────┐
+│ Client   │────▶│ FastAPI Gateway  │────▶│ Agent Orchestrator│
+│ REST API │     │ /api/v1/*        │     │ tool use + RAG    │
+└──────────┘     │ /mcp/sse         │     └────┬────────┬─────┘
+                 │ /metrics         │          │        │
+                 └──────────────────┘          ▼        ▼
+                              ┌─────────────────┐  ┌──────────────────┐
+                              │ RAG Pipeline    │  │ Tool Executor    │
+                              │ pgvector search │  │ MCP client       │
+                              │ chunk + embed   │  │ KB / calc / web  │
+                              │ rerank          │  │ datetime         │
+                              └────────┬────────┘  └──────────────────┘
+                                       │
+                              ┌────────┴────────┐
+                              │ PostgreSQL      │
+                              │ + pgvector      │
+                              │ + llm_usage     │
+                              └─────────────────┘
+
+  ┌─────────┐  ┌──────────┐  ┌────────────┐
+  │ Redis   │  │ Celery   │  │ Prometheus │
+  │ semantic│  │ embed    │  │ + Grafana  │
+  │ cache   │  │ worker   │  │            │
+  └─────────┘  └──────────┘  └────────────┘
 ```
 
-Data flow (direct RAG query): **upload** → chunk → **Gemini** embed → store vectors → **query** → embed question → **semantic cache** (Redis) or **vector search** → rerank → **LLM** (Gemini / Anthropic / OpenAI) → answer with citations.
+## Screenshots
 
-## Features
+### Swagger UI
+![Swagger UI](docs/images/swagger-ui.png)
 
-| Area | Description |
-|------|-------------|
-| **RAG** | Chunking, Gemini `gemini-embedding-001` (3072d), cosine retrieval, rerank, cited answers |
-| **Agents** | JSON tool protocol: knowledge base, web search, calculator, datetime, **MCP tools** |
-| **MCP** | SSE server at `/mcp/sse`; optional external MCP servers via `MCP_SERVERS` |
-| **Multi-provider** | `LLMFactory`: Gemini (default), Anthropic, OpenAI; per-request `provider` / `model` |
-| **Cost control** | `llm_usage_records` table; `GET /api/v1/usage/stats` |
-| **Semantic cache** | Redis, LSH bucket + cosine ≥ 0.95, TTL 24h |
-| **Observability** | Prometheus `/metrics` |
+### RAG Query — answer with citations
+![RAG Query Result](docs/images/rag-query-result.png)
 
-## Quick start
+### Agent — knowledge base search tool
+![Agent RAG](docs/images/agent-rag-query.png)
+
+### Agent — calculator tool
+![Agent Calculator](docs/images/agent-calculator.png)
+
+### Conversation History
+![Conversation History](docs/images/conversation-history.png)
+
+### Documents List
+![Documents List](docs/images/documents-list.png)
+
+### Grafana Dashboard
+![Grafana Dashboard](docs/images/grafana-dashboard.png)
+
+### Prometheus Metrics
+![Prometheus Metrics](docs/images/prometheus-metrics.png)
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| API | FastAPI (asyncio) |
+| Database | PostgreSQL 16 + pgvector extension |
+| ORM | SQLAlchemy 2 (async) + Alembic |
+| Embeddings | Gemini `gemini-embedding-001` (3072d) |
+| LLM | Gemini (default), Anthropic, OpenAI — multi-provider |
+| Agent | JSON tool protocol: KB search, web search, calculator, datetime, MCP tools |
+| MCP | SSE server + external MCP client |
+| Async tasks | Celery + Redis broker (document embedding) |
+| Cache | Redis semantic cache (LSH + cosine ≥ 0.95, TTL 24h) |
+| Cost tracking | `llm_usage_records` table + `/api/v1/usage/stats` |
+| Metrics | Prometheus + Grafana |
+| CI | GitHub Actions (ruff + mypy + pytest + Docker build) |
+
+## Architecture Decisions
+
+**pgvector over dedicated vector DB (Pinecone, Weaviate)** — keeps the entire data layer in a single PostgreSQL instance. No extra infrastructure, simpler backups, transactional consistency between document metadata and embeddings. IVFFlat index handles the expected scale.
+
+**Gemini as default provider** — free tier for embeddings + LLM, sufficient for development and demo. Multi-provider factory (`LLMFactory`) allows switching to Anthropic or OpenAI per-request without code changes.
+
+**Semantic cache in Redis (LSH buckets)** — near-identical questions return cached answers without burning tokens. Cosine similarity ≥ 0.95 threshold balances hit rate vs answer relevance. TTL 24h prevents stale answers.
+
+**Celery for embedding, not in-request** — embedding a large document blocks the API for seconds. Celery worker processes documents asynchronously; the client polls `GET /documents/{id}` for status.
+
+**MCP over custom tool protocol** — Model Context Protocol is an emerging standard. Implementing it means external agents (Claude Desktop, Cursor) can use AgentHub's knowledge base as a tool — not just our own agent.
+
+## Quick Start
 
 ```bash
-cp .env.example .env   # set GEMINI_API_KEY
+cp .env.example .env
+# Set GEMINI_API_KEY in .env
+
 docker compose up --build -d
 ```
 
-App: `http://localhost:8014` · Health: `GET http://localhost:8014/health`
+| Service | URL |
+|---------|-----|
+| API | `http://localhost:8014` |
+| Health | `http://localhost:8014/health` |
+| Swagger | `http://localhost:8014/docs` |
+| Prometheus | `http://localhost:59090` |
+| Grafana | `http://localhost:3005` (admin / admin) |
 
-### Upload a document
+## API
 
-```bash
-curl.exe -s -X POST "http://localhost:8014/api/v1/documents" ^
-  -F "file=@C:\path\to\file.txt"
-```
+### Documents
 
-### Query (RAG, Gemini)
+#### `POST /api/v1/documents`
 
-```bash
-curl.exe -s -X POST "http://localhost:8014/api/v1/query" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"question\":\"What is this document about?\",\"use_agent\":false,\"provider\":\"gemini\",\"model\":\"models/gemini-2.0-flash\"}"
-```
-
-**PowerShell** often breaks JSON encoding; prefer **`curl.exe`** (ships with Windows 10+):
-
-```powershell
-curl.exe -s -X POST "http://localhost:8014/api/v1/query" -H "Content-Type: application/json" --data-raw "{\"question\":\"What is FastAPI?\",\"use_agent\":false}"
-```
-
-Or with JSON in single quotes (no escaping of inner double quotes):
-
-```powershell
-curl.exe -s -X POST "http://localhost:8014/api/v1/query" -H "Content-Type: application/json" --data-raw '{"question":"What is FastAPI?","use_agent":false}'
-```
-
-If you use `Invoke-RestMethod`, define `$body` first, then call it in **one** command (parameters are not valid on their own lines):
-
-```powershell
-$body = @{ question = "What is FastAPI?"; use_agent = $false } | ConvertTo-Json -Compress -Depth 5
-Invoke-RestMethod -Method POST -Uri "http://localhost:8014/api/v1/query" -ContentType "application/json" -Body $body
-```
-
-If `Invoke-RestMethod` reports **500**, `$resp1` is **not** updated (the number you print may be from an earlier run). Check `docker compose logs app --tail=80` for the traceback.
-
-### Query (agent)
+Upload a document (txt, md, pdf). Triggers async Celery embedding.
 
 ```bash
-curl.exe -s -X POST "http://localhost:8014/api/v1/query" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"question\":\"Summarize the docs\",\"use_agent\":true}"
+curl.exe -s -X POST "http://localhost:8014/api/v1/documents" -F "file=@document.txt"
 ```
 
-### Usage stats (cost tracking)
+Response: `{"document_id": "...", "status": "processing"}`
 
-```bash
-curl.exe -s "http://localhost:8014/api/v1/usage/stats"
+#### `GET /api/v1/documents`
+
+List all documents with statuses (`pending` / `processing` / `ready` / `failed`).
+
+#### `GET /api/v1/documents/{id}`
+
+Document metadata + chunk count.
+
+#### `DELETE /api/v1/documents/{id}`
+
+Delete document + cascade chunks.
+
+---
+
+### Query
+
+#### `POST /api/v1/query`
+
+Ask a question. Supports RAG and agent mode.
+
+```json
+{
+  "question": "What is FastAPI built on?",
+  "use_agent": false,
+  "top_k": 5,
+  "provider": "gemini",
+  "model": "models/gemini-2.0-flash"
+}
 ```
 
-Example response:
+Response:
+```json
+{
+  "answer": "FastAPI is built on Starlette for web handling and Pydantic for data validation...",
+  "sources": [
+    {"document_title": "docs.txt", "chunk_text_preview": "FastAPI is built on...", "score": 0.92}
+  ],
+  "tokens_used": 450,
+  "cost_usd": 0.0003,
+  "conversation_id": "uuid..."
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `question` | Required. The question to ask |
+| `use_agent` | `false` = direct RAG, `true` = agent with tools |
+| `conversation_id` | Continue existing conversation |
+| `top_k` | Number of chunks to retrieve (default: 5) |
+| `provider` | `gemini` / `anthropic` / `openai` |
+| `model` | Model name (e.g. `models/gemini-2.0-flash`) |
+
+---
+
+### Conversations
+
+#### `GET /api/v1/conversations`
+
+List all conversations.
+
+#### `GET /api/v1/conversations/{id}/messages`
+
+Message history for a conversation.
+
+---
+
+### Cost Tracking
+
+#### `GET /api/v1/usage/stats`
+
+Aggregated LLM cost and token usage.
 
 ```json
 {
@@ -113,83 +210,96 @@ Example response:
 }
 ```
 
-### Prometheus metrics
+---
 
-```bash
-curl.exe -s "http://localhost:8014/metrics"
-```
+### Metrics
 
-Relevant series: `llm_requests_total`, `llm_tokens_used_total`, `llm_cost_usd_total`, `semantic_cache_hit_ratio`, `rag_retrieval_duration_seconds`, `embedding_duration_seconds`, …
+#### `GET /metrics`
 
-Prometheus UI: `http://localhost:59090` · Grafana: `http://localhost:3005` (admin / admin)
+Prometheus text exposition.
 
-## API reference (curl)
-
-| Method | Path | Description |
+| Metric | Type | Description |
 |--------|------|-------------|
-| **GET** | `/health` | Liveness |
-| **GET** | `/metrics` | Prometheus text exposition |
-| **POST** | `/api/v1/documents` | Multipart upload (`file`) |
-| **GET** | `/api/v1/documents` | List documents |
-| **GET** | `/api/v1/documents/{id}` | Document metadata |
-| **DELETE** | `/api/v1/documents/{id}` | Delete document |
-| **POST** | `/api/v1/query` | JSON: `question`, optional `conversation_id`, `top_k`, `use_agent`, `provider`, `model` |
-| **GET** | `/api/v1/conversations` | List conversations |
-| **GET** | `/api/v1/conversations/{id}/messages` | Messages |
-| **GET** | `/api/v1/usage/stats` | Aggregated LLM cost and tokens |
+| `llm_requests_total` | Counter | LLM calls; labels: `provider`, `model`, `status` |
+| `llm_tokens_used_total` | Counter | Tokens; labels: `provider`, `model`, `direction` |
+| `llm_cost_usd_total` | Counter | Cost in USD; labels: `provider`, `model` |
+| `llm_request_duration_seconds` | Histogram | LLM request latency |
+| `rag_retrieval_duration_seconds` | Histogram | Vector search latency |
+| `embedding_duration_seconds` | Histogram | Embedding generation latency |
+| `documents_total` | Gauge | Total documents |
+| `chunks_total` | Gauge | Total chunks |
+| `semantic_cache_hit_ratio` | Gauge | Cache hit ratio |
+| `mcp_tool_calls_total` | Counter | MCP tool invocations |
 
 ## MCP
 
-### Local MCP server (this app)
+### Local MCP Server
 
-- SSE: `GET http://localhost:8014/mcp/sse`
-- Messages: `POST http://localhost:8014/mcp/messages/?session_id=...`
+SSE endpoint: `GET http://localhost:8014/mcp/sse`
 
 Tools: `search_documents`, `list_documents`. Resource template: `document://{document_id}`.
 
-### External MCP servers
-
-Set env (JSON array):
+### External MCP Servers
 
 ```env
 MCP_SERVERS=[{"name":"local-docs","url":"http://127.0.0.1:8014/mcp/sse"}]
 ```
 
-Or YAML file path in `MCP_SERVERS_CONFIG`. On startup, AgentHub connects over SSE and merges tools into the agent (prefixed names like `agenthub__search_documents`).
+On startup, AgentHub connects via SSE and merges external tools into the agent (prefixed names like `agenthub__search_documents`).
 
-## Screenshots
+## Running Tests
 
-| Screenshot | Description |
-|---|---|
-| ![Swagger UI](docs/images/swagger-ui.png) | Swagger UI — full API reference |
-| ![RAG query result](docs/images/rag-query-result.png) | RAG query with citations |
-| ![Agent RAG](docs/images/agent-rag-query.png) | Agent using KB search tool |
-| ![Agent calculator](docs/images/agent-calculator.png) | Agent tool use — calculator |
-| ![Conversation history](docs/images/conversation-history.png) | Threaded conversation history |
-| ![Grafana dashboard](docs/images/grafana-dashboard.png) | Grafana: cache hit ratio, LLM latency, RAG/embed latency |
-| ![Prometheus metrics](docs/images/prometheus-metrics.png) | Prometheus: `semantic_cache_hit_ratio`, `llm_request_duration_seconds_count` |
+```bash
+pip install -r requirements.txt
 
-## Environment
+# Lint + type check
+ruff check .
+python -m mypy app/models/llm_usage.py app/services/usage_tracker.py app/metrics.py
+
+# Tests
+pytest tests/
+```
+
+CI: GitHub Actions — ruff, mypy (subset), pytest, Docker build, PostgreSQL + Redis services.
+
+## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
 | `GEMINI_API_KEY` | Gemini LLM + embeddings |
-| `DATABASE_URL` | PostgreSQL |
-| `REDIS_URL` | Celery + semantic cache |
-| `LLM_PROVIDER` | Default: `gemini` |
-| `LLM_MODEL` | e.g. `models/gemini-2.0-flash` |
-| `EMBEDDING_MODEL` | e.g. `models/gemini-embedding-001` |
+| `DATABASE_URL` | PostgreSQL connection |
+| `REDIS_URL` | Celery broker + semantic cache |
+| `LLM_PROVIDER` | Default provider (`gemini`) |
+| `LLM_MODEL` | Default model |
+| `EMBEDDING_MODEL` | Embedding model |
 | `SEMANTIC_CACHE_ENABLED` | `true` / `false` |
 | `MCP_SERVERS` | JSON list of `{name, url}` |
 | `LLM_FALLBACK_PROVIDER` | Fallback if primary fails |
+| `ANTHROPIC_API_KEY` | Optional: Anthropic provider |
+| `OPENAI_API_KEY` | Optional: OpenAI provider |
 
-## Development
+## Project Structure
 
-```bash
-pip install -r requirements.txt
-ruff check .
-python -m mypy app/models/llm_usage.py app/services/usage_tracker.py app/metrics.py app/cache/semantic_cache.py
-pytest tests/
+```
+agenthub/
+├── app/
+│   ├── api/v1/          # REST endpoints
+│   ├── models/          # SQLAlchemy models (document, chunk, conversation, usage)
+│   ├── services/
+│   │   ├── rag/         # chunker, embedder, retriever, reranker, generator
+│   │   ├── agent/       # orchestrator, tools (KB, calc, web, datetime, MCP)
+│   │   └── llm/         # multi-provider factory (Gemini, Anthropic, OpenAI)
+│   ├── mcp/             # MCP server + client
+│   ├── cache/           # semantic cache (Redis + LSH)
+│   └── metrics.py       # Prometheus metrics
+├── monitoring/          # Prometheus + Grafana configs
+├── tests/
+├── docs/images/         # Screenshots
+├── docker-compose.yml
+├── Dockerfile
+└── alembic.ini
 ```
 
-CI (GitHub Actions): Ruff, Mypy (subset), pytest, Docker build, PostgreSQL + Redis services.
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
