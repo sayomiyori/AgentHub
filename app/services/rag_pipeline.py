@@ -36,7 +36,7 @@ class RAGPipeline:
             model=model,
         )
         if cached is not None:
-            return {**cached, "semantic_cache_hit": True}
+            return {**cached, "semantic_cache_hit": True, "tokens_used": 0, "cost_usd": 0.0}
 
         with rag_retrieval_timer():
             candidates = self.retriever.retrieve(db=db, query_embedding=query_embedding, top_k=max(top_k * 3, 10))

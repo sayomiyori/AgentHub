@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: verification
+      POSTGRES_PASSWORD: verification
+      POSTGRES_DB: agenthub_verification
+    ports: ["127.0.0.1:55434:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U verification -d agenthub_verification"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:56381:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  api:
+    build: .
+    command: uvicorn tests.verification_app:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql+psycopg://verification:verification@postgres:5432/agenthub_verification
+      REDIS_URL: redis://redis:6379/0
+      GEMINI_API_KEY: ""
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GROQ_API_KEY: ""
+      MCP_SERVERS: ""
+      MCP_SERVERS_CONFIG: ""
+    ports: ["127.0.0.1:38082:8000"]
+    volumes:
+      - verification-uploads:/app/uploads
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  worker:
+    image: agenthub-verification-api
+    command: celery -A app.workers.embed_worker.celery_app worker --loglevel=warning --concurrency=1
+    environment:
+      DATABASE_URL: postgresql+psycopg://verification:verification@postgres:5432/agenthub_verification
+      REDIS_URL: redis://redis:6379/0
+      GEMINI_API_KEY: ""
+    volumes:
+      - verification-uploads:/app/uploads
+    depends_on:
+      api: {condition: service_started}
+volumes:
+  verification-uploads:

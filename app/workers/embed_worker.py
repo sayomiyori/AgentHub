@@ -30,12 +30,12 @@ def process_document(document_id: int) -> None:
     chunker = TextChunker(chunk_size=500, chunk_overlap=50)
     embedder = GeminiEmbedder()
     try:
-        document = db.get(Document, document_id)
-        if not document:
+        document = db.query(Document).filter(Document.id == document_id).with_for_update().first()
+        if not document or document.upload_status == UploadStatus.ready:
             return
 
         document.upload_status = UploadStatus.processing
-        db.commit()
+        db.flush()
 
         text = _read_document_text(document.file_path, document.content_type.value)
         chunks = chunker.split(text)
@@ -45,7 +45,7 @@ def process_document(document_id: int) -> None:
             embeddings.extend(embedder.embed_texts(chunks[i : i + batch_size]))
 
         chunk_rows = []
-        for idx, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=False)):
+        for idx, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
             chunk_rows.append(
                 Chunk(
                     document_id=document.id,
@@ -63,8 +63,13 @@ def process_document(document_id: int) -> None:
         document.upload_status = UploadStatus.ready
         db.commit()
     except Exception:
-        document = db.get(Document, document_id)
-        if document:
+        db.rollback()
+        # A retry can finish after rollback releases the original lock.
+        document = (
+            db.query(Document).filter(Document.id == document_id)
+            .populate_existing().with_for_update().first()
+        )
+        if document and document.upload_status != UploadStatus.ready:
             document.upload_status = UploadStatus.failed
             db.commit()
         raise
