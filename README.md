@@ -325,7 +325,7 @@ agenthub/
 │   ├── services/
 │   │   ├── rag/         # chunker, embedder, retriever, reranker, generator
 │   │   ├── agent/       # orchestrator, tools (KB, calc, web, datetime, MCP)
-│   │   └── llm/         # multi-provider factory (Gemini, Anthropic, OpenAI)
+│   │   └── llm/         # multi-provider factory (Gemini, Anthropic, OpenAI, Groq)
 │   ├── mcp/             # MCP server + client
 │   ├── cache/           # semantic cache (Redis + LSH)
 │   └── metrics.py       # Prometheus metrics
@@ -389,3 +389,23 @@ The processing worker and recovery scanner remain subsequent stages. The queue
 notification names `platform.process_telegram_job`; do not attach the legacy
 embedding worker to this queue. Pending admission is not an AI result or Telegram
 delivery. Existing standalone routes and defaults retain their behavior.
+
+## Bounded platform generation
+
+The platform generation function calls Groq directly through the existing
+provider interface; it never enters the standalone factory's fallback path.
+It sends the versioned `telegram-plain-v1` system prompt and the admitted
+question only. No tools, RAG, history or cache are consulted. The fixed endpoint
+is `https://api.groq.com/openai/v1`; proxy inheritance and redirects are disabled.
+One request has a 20-second total deadline, SDK retries disabled and
+`max_completion_tokens=1024`. Empty, refused, tool-bearing or incomplete
+responses and invalid token usage are rejected. Stored text is capped at 4096
+characters with an ellipsis; remote errors never appear in platform errors.
+
+Usage cost is an approximate list-price estimate, not the actual charge to the
+operator's free account. Current GPT-OSS 20B and Qwen3.8 estimates use the
+[Groq model catalog](https://console.groq.com/docs/models); older model entries
+retain historical estimates and do not establish current free-account access.
+The platform requires an explicit model and `GROQ_API_KEY`; model/account access
+must be verified separately before a live demo. No billing changes are made.
+Durable processing and delivery remain subsequent stages.

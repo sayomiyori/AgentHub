@@ -34,3 +34,14 @@ Constrain the dependency to `mcp>=1.0.0,<2.0.0` (commit b3b4cf1). The local
 44-test suite uses SDK 1.30.0; independent review also verified server creation
 and its `/sse` and `/messages` routes. A clean CI install and its HTTP/startup
 tests detect this compatibility regression without provider API calls.
+
+## Groq platform completion boundary - 2026-10-06
+
+Task3's first review reproduced three completion-boundary defects with the real
+SDK over controlled HTTP: confirmed authentication rejection lost its error
+classification, legacy function-call/non-assistant responses were accepted, and
+an escaped lone surrogate passed validation but failed UTF-8 serialization.
+The bounded platform path now returns static typed errors and rejects invalid
+role/tool/refusal/text/usage before storage. Standalone optional tools remain
+supported. Transport errors and quota failures do not trigger a second request
+or fallback; their effect remains uncertain for the durable processor.

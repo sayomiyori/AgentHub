@@ -9,6 +9,7 @@ from app.metrics import observe_llm_response
 from app.services.llm.anthropic import AnthropicProvider
 from app.services.llm.base import LLMProvider, LLMResponse
 from app.services.llm.gemini import GeminiProvider
+from app.services.llm.groq import GroqProvider
 from app.services.llm.openai import OpenAIProvider
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,8 @@ def get_provider_by_name(name: str) -> LLMProvider:
         return AnthropicProvider()
     if n == "gemini":
         return GeminiProvider()
+    if n == "groq":
+        return GroqProvider()
     raise ValueError(f"Unknown LLM provider: {name}")
 
 
@@ -59,6 +62,8 @@ class LLMFactory:
                 resolved_model = "gpt-4o-mini"
             elif prov_name == "anthropic":
                 resolved_model = "claude-3-5-haiku-20241022"
+            elif prov_name == "groq":
+                resolved_model = "llama-3.3-70b-versatile"
             else:
                 resolved_model = settings.llm_model
 

@@ -17,6 +17,18 @@ MODEL_PRICING: dict[str, dict[str, tuple[float, float]]] = {
         "models/gemini-2.0-flash": (0.10, 0.40),
         "models/gemini-1.5-flash": (0.075, 0.30),
     },
+    "groq": {
+        "llama-3.3-70b-versatile": (0.59, 0.79),
+        "llama-3.1-8b-instant": (0.05, 0.08),
+        "mixtral-8x7b-32768": (0.24, 0.24),
+        "llama-3.2-1b-preview": (0.04, 0.04),
+        "llama-3.2-3b-preview": (0.06, 0.06),
+        "llama-3.2-11b-text-preview": (0.18, 0.18),
+        "llama-3.2-90b-text-preview": (0.90, 0.90),
+        # Current catalog estimates, not actual free-account billing.
+        "openai/gpt-oss-20b": (0.075, 0.30),
+        "qwen/qwen3.8-27b": (0.80, 4.00),
+    },
 }
 
 
