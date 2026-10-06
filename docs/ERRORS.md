@@ -45,3 +45,11 @@ The bounded platform path now returns static typed errors and rejects invalid
 role/tool/refusal/text/usage before storage. Standalone optional tools remain
 supported. Transport errors and quota failures do not trigger a second request
 or fallback; their effect remains uncertain for the durable processor.
+
+## Answer envelope timezone - 2026-10-06
+
+An isolated PostgreSQL session with `SET LOCAL TIME ZONE 'Europe/Moscow'`
+reproduced an answer envelope timestamp ending in `+03:00`, violating the UTC
+contract. Completion now converts the database clock to UTC before serializing
+`occurred_at`; lease comparisons continue to use the actual database clock.
+`test_answer_timestamp_remains_utc_with_non_utc_database_session` covers it.

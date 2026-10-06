@@ -246,6 +246,21 @@ def test_expired_fence_cannot_store_result(setup):
         assert db.scalar(select(TelegramReplyOutbox.id).where(TelegramReplyOutbox.job_id == job_id)) is None
 
 
+def test_answer_timestamp_remains_utc_with_non_utc_database_session(setup):
+    from app.platform.jobs import complete_job, mark_call_started
+    sessions, job_id, _, _ = setup
+    owned = claim(sessions, job_id)
+    with sessions() as db:
+        assert mark_call_started(db, owned)
+        db.commit()
+    with sessions() as db:
+        db.execute(text("SET LOCAL TIME ZONE 'Europe/Moscow'"))
+        assert complete_job(db, owned, response())
+        db.commit()
+        answer = db.scalar(select(TelegramReplyOutbox).where(TelegramReplyOutbox.job_id == job_id))
+        assert datetime.fromisoformat(answer.envelope["occurred_at"]).utcoffset().total_seconds() == 0
+
+
 @pytest.mark.parametrize("kind,expected", [("timeout", "unknown"), ("quota", "unknown"),
                                          ("auth", "failed"), ("empty", "failed")])
 def test_after_started_failure_never_repeats(setup, kind, expected):

@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -122,7 +122,7 @@ def complete_job(db: Session, claim: JobClaim, result: LLMResponse) -> bool:
         id=uuid4(), job_id=job.id, tenant_id=job.tenant_id, bot_id=job.bot_id,
         envelope={
             "event_id": str(answer_event_id), "event_type": "telegram.answer.created",
-            "schema_version": 1, "occurred_at": now.isoformat(),
+            "schema_version": 1, "occurred_at": now.astimezone(UTC).isoformat(),
             "tenant_id": str(job.tenant_id), "bot_id": str(job.bot_id),
             "correlation_id": job.envelope["correlation_id"],
             "idempotency_key": f"telegram-answer:{job.event_id}",
@@ -218,6 +218,10 @@ def persist_admission(
 
 
 def enqueue_job(job_id: UUID) -> None:
+    enqueue_platform_task("platform.process_telegram_job", job_id, "telegram_ai")
+
+
+def enqueue_platform_task(name: str, identity: UUID, queue: str) -> None:
     from celery import Celery
 
     from app.config import get_settings
@@ -235,6 +239,6 @@ def enqueue_job(job_id: UUID) -> None:
         },
     )
     try:
-        app.send_task("platform.process_telegram_job", args=[str(job_id)], queue="telegram_ai", retry=False)
+        app.send_task(name, args=[str(identity)], queue=queue, retry=False)
     finally:
         app.close()

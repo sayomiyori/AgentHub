@@ -344,7 +344,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 ## Telegram platform migration checkpoint
 
 Platform job, usage and reply-outbox models use separate metadata from legacy
-standalone records. Reply publication and Telegram delivery are not implemented yet.
+standalone records. Telegram delivery is not implemented yet.
 `TELEGRAM_AI_ENABLED=false` keeps the standalone startup behavior. Enabling it
 requires three independent service keys, an explicit Groq model, a fixed WebHook
 origin and migration head `002_telegram_ai`; startup never stamps the database.
@@ -407,7 +407,7 @@ operator's free account. Current GPT-OSS 20B and Qwen3.8 estimates use the
 retain historical estimates and do not establish current free-account access.
 The platform requires an explicit model and `GROQ_API_KEY`; model/account access
 must be verified separately before a live demo. No billing changes are made.
-Reply publication and delivery remain subsequent stages.
+Telegram delivery remains a subsequent stage.
 
 ## Durable Telegram AI processing
 
@@ -440,3 +440,28 @@ loop. All notifications contain only job UUIDs. Fences prevent stale workers fro
 starting calls or overwriting newer outcomes. Inspect unknown records before any
 separately approved operator reconciliation; no automatic second generation or
 manual retry API exists. `completed` means a durable result, not a sent answer.
+
+## Signed answer publication
+
+Run the separate publication worker and scanner alongside the AI processes:
+
+```powershell
+celery -A app.workers.telegram_reply_worker:celery_app worker --concurrency=1 --queues=telegram_replies
+python -m scripts.recover_telegram_replies
+```
+
+The scanner discovers atomic reply intents without relying on a post-completion
+broker notification. Publication posts the immutable envelope to the fixed
+WebHook origin's `/internal/v1/telegram/answers`, signed with the independent
+`AGENT_WEBHOOK_REPLY_KEY`. AgentHub sends neither a destination chat nor a bot
+credential. The HTTP request has an 8-second total deadline, a 64 KiB identity
+JSON receipt cap and no redirects, inherited proxies or transport retries.
+
+A matching 202/200 receipt stores `delivery_id` and changes the local outbox to
+`published`; it confirms remote durable admission, not Telegram delivery.
+Lost receipts and expired publication claims retry the same answer identity.
+Publication has at most ten attempts, a 60-second database-clock fenced lease
+and backoff capped at 60 seconds. Authentication/content rejection stops retries;
+the exact readiness409 `ingress_publication_not_ready` remains retryable.
+WebHook's answer admission and Telegram sender must be deployed before enabling
+these processes; their end-to-end behavior remains unverified at this checkpoint.
