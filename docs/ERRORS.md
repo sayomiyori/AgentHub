@@ -22,3 +22,15 @@ timeout smoke passed. Image assertions confirmed the latest recovery code and
 absence of `.env`, `.git` and `.venv`. Exact commands are in
 `verification-checkpoint.md`. The initial infrastructure setup errors were caused
 by stopped Docker Desktop and disappeared after Engine/retained containers started.
+
+## MCP SDK major-version incompatibility - 2026-10-06
+
+A clean CI install selected MCP 2.x from the unconstrained dependency.
+`mcp.server.fastmcp.FastMCP` no longer exists in that major version, so the
+legacy HTTP test and three platform startup tests failed during application
+import (40 passed, 4 failed). The existing server uses the SDK v1 SSE API.
+
+Constrain the dependency to `mcp>=1.0.0,<2.0.0` (commit b3b4cf1). The local
+44-test suite uses SDK 1.30.0; independent review also verified server creation
+and its `/sse` and `/messages` routes. A clean CI install and its HTTP/startup
+tests detect this compatibility regression without provider API calls.
