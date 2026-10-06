@@ -8,6 +8,7 @@ from app.api.v1.documents import router as documents_router
 from app.api.v1.query import router as query_router
 from app.api.v1.usage import router as usage_router
 from app.config import get_settings
+from app.db.platform import require_platform_schema
 from app.db.session import Base, SessionLocal, engine
 from app.mcp.client import mcp_client_manager
 from app.mcp.server import create_mcp_starlette_app
@@ -16,6 +17,7 @@ from app.models.chunk import Chunk  # noqa: F401
 from app.models.conversation import Conversation, Message  # noqa: F401
 from app.models.document import Document  # noqa: F401
 from app.models.llm_usage import LLMUsageRecord  # noqa: F401
+from app.platform.config import get_platform_settings
 
 settings = get_settings()
 
@@ -31,6 +33,8 @@ def _refresh_storage_gauges() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if get_platform_settings().telegram_ai_enabled:
+        require_platform_schema(engine)
     Base.metadata.create_all(bind=engine)
     _refresh_storage_gauges()
     await mcp_client_manager.startup()

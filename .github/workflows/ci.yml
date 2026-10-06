@@ -36,6 +36,7 @@ jobs:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:55432/agenthub
       REDIS_URL: redis://localhost:6379/0
       AGENTHUB_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:55432/agenthub
+      AGENTHUB_PLATFORM_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:55432/nexus_agent_ai_ci_test
       AGENTHUB_TEST_REDIS_URL: redis://localhost:6379/15
       GEMINI_API_KEY: ""
       LLM_PROVIDER: gemini
@@ -67,12 +68,22 @@ jobs:
           conn.close()
           PY
 
+      - name: Verify platform migration upgrade
+        run: |
+          python << 'PY'
+          import psycopg
+          with psycopg.connect("postgresql://postgres:postgres@localhost:55432/agenthub", autocommit=True) as connection:
+              connection.execute("CREATE DATABASE nexus_agent_ai_ci_test")
+          PY
+          DATABASE_URL="$AGENTHUB_PLATFORM_TEST_DATABASE_URL" python -m alembic upgrade head
+          DATABASE_URL="$AGENTHUB_PLATFORM_TEST_DATABASE_URL" python -m alembic check
+
       - name: Ruff
         run: python -m ruff check .
 
       - name: Mypy
         run: |
-          python -m mypy app/models/llm_usage.py app/services/usage_tracker.py app/metrics.py app/cache/semantic_cache.py
+          python -m mypy app/models/llm_usage.py app/services/usage_tracker.py app/metrics.py app/cache/semantic_cache.py app/platform app/db/platform.py app/models/telegram_job.py app/models/telegram_reply.py app/models/telegram_usage.py
 
       - name: Pytest
         run: pytest -q tests/

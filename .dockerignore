@@ -1,4 +1,5 @@
 .git
+.serena
 .env
 .env.*
 !.env.example

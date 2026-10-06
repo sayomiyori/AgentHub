@@ -264,6 +264,39 @@ CI: GitHub Actions — ruff, mypy (subset), pytest, Docker build, PostgreSQL + R
 
 ## Environment Variables
 
+### Free demo providers
+
+Direct API probes on 2026-10-06 returned complete text from Gemini
+`gemini-2.5-flash`, OpenRouter `liquid/lfm-2.5-2.6b:free` and Cloudflare Workers AI
+`@cf/meta/llama-3.2-3b-instruct`. The operator confirmed Gemini Free Tier and
+Workers Free; OpenRouter reported Free Tier and zero cost for the probe.
+These checks do not verify the Telegram flow or account billing history.
+
+The working checkout includes Groq integration, selected by NexusCore Compose.
+Gemini already has an adapter. OpenRouter and Cloudflare adapters are planned:
+adding their `.env` variables does not enable them. OpenRouter uses
+`OPENROUTER_TOKEN`; Cloudflare requires `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`. Root Compose currently forwards only Groq credentials;
+standalone Gemini reads this repository's `GEMINI_API_KEY`.
+
+Use free accounts and leave `LLM_FALLBACK_PROVIDER`/`LLM_FALLBACK_MODEL` empty.
+The existing standalone factory supports paid providers and fallback; it does
+not enforce a free-only policy. The planned platform worker will enforce its
+own provider policy. OpenAI's SDK in the Groq adapter connects to Groq's endpoint
+and does not require an OpenAI account.
+
+[OpenRouter Free](https://openrouter.ai/pricing) allows 50 requests/day; choose
+catalog models with `:free` and verified zero pricing.
+[Workers Free](https://developers.cloudflare.com/workers-ai/platform/pricing/)
+includes 10,000 Neurons/day; some models require paid access.
+[Gemini quotas](https://ai.google.dev/gemini-api/docs/rate-limits) depend on project
+and model. Quota exhaustion is an error, not permission to use paid inference.
+Token-price estimates are not evidence of actual billed cost.
+
+Future UI token onboarding is a separate feature: encrypted tenant-scoped
+credentials, masked metadata and no token readback. Keep real keys in local
+`.env` or secret storage; examples contain empty values only.
+
 | Variable | Purpose |
 |----------|---------|
 | `GEMINI_API_KEY` | Gemini LLM + embeddings |
@@ -277,6 +310,10 @@ CI: GitHub Actions — ruff, mypy (subset), pytest, Docker build, PostgreSQL + R
 | `LLM_FALLBACK_PROVIDER` | Fallback if primary fails |
 | `ANTHROPIC_API_KEY` | Optional: Anthropic provider |
 | `OPENAI_API_KEY` | Optional: OpenAI provider |
+| `GROQ_API_KEY` | Working-checkout Groq adapter; NexusCore demo provider |
+| `OPENROUTER_TOKEN` | Reserved: upcoming OpenRouter adapter |
+| `CLOUDFLARE_API_TOKEN` | Reserved: upcoming Workers AI adapter |
+| `CLOUDFLARE_ACCOUNT_ID` | Reserved: Workers AI account identifier |
 
 ## Project Structure
 
@@ -303,3 +340,25 @@ agenthub/
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+## Telegram platform migration checkpoint
+
+Platform job, usage and reply-outbox models use separate metadata from legacy
+standalone records. Processing and Telegram delivery are not implemented yet.
+`TELEGRAM_AI_ENABLED=false` keeps the standalone startup behavior. Enabling it
+requires three independent service keys, an explicit Groq model, a fixed WebHook
+origin and migration head `002_telegram_ai`; startup never stamps the database.
+
+For a new isolated PostgreSQL database, configure `DATABASE_URL` and run:
+
+```powershell
+python -m alembic upgrade head
+python -m alembic check
+```
+
+The baseline creates five standalone tables and the vector extension; the second
+revision adds three platform tables. Do not apply the baseline blindly to an
+existing `create_all` database or automatically stamp it. Compare its actual
+schema with the frozen baseline and plan explicit operator-approved adoption.
+A rollback to `001_legacy_baseline` removes the three platform tables and requires
+confirmation before executing DROP; test only in an empty isolated database.
