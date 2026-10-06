@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import Response
 
+from app.api.internal.telegram import router as telegram_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.query import router as query_router
@@ -46,6 +47,7 @@ app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
 app.mount("/mcp", create_mcp_starlette_app())
 
+app.include_router(telegram_router)
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(query_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")

@@ -362,3 +362,30 @@ existing `create_all` database or automatically stamp it. Compare its actual
 schema with the frozen baseline and plan explicit operator-approved adoption.
 A rollback to `001_legacy_baseline` removes the three platform tables and requires
 confirmation before executing DROP; test only in an empty isolated database.
+
+## Signed Telegram admission checkpoint
+
+`POST /internal/v1/telegram/updates` is available only with
+`TELEGRAM_AI_ENABLED=true` and the migrated schema. It verifies exactly one
+`X-Webhook-Signature: sha256=<hex>` over the raw body, caps streamed input at
+1 MiB, validates the v1 envelope and resolves fresh active bot/tenant context
+through WebHook Manager. No provider call runs in this endpoint.
+
+`WEBHOOK_AGENT_SERVICE_KEY` in AgentHub must match WebHook Manager's
+`WEBHOOK_AGENT_CONTEXT_KEY`; the independent `WEBHOOK_AGENT_INGRESS_KEY` signs
+updates. The fixed `WEBHOOK_INTERNAL_URL` origin cannot contain credentials,
+a path, query or fragment. Context lookup has an 8-second total deadline,
+5-second HTTP timeout and a 64 KiB response cap, with no redirects or proxy
+inheritance. Error responses do not echo event data or remote error bodies.
+
+First durable admission returns 202, identical replay 200, content/identity
+conflict 409. Receipts contain exactly `event_id`, `job_id`, `state`.
+PostgreSQL uniqueness prevents concurrent duplicate jobs; commit precedes the
+best-effort UUID notification to the dedicated `telegram_ai` queue. Broker outage
+still returns the durable receipt and leaves the job pending. Failed notification
+logs only a static warning. Replays always reauthorize current bot context.
+
+The processing worker and recovery scanner remain subsequent stages. The queue
+notification names `platform.process_telegram_job`; do not attach the legacy
+embedding worker to this queue. Pending admission is not an AI result or Telegram
+delivery. Existing standalone routes and defaults retain their behavior.
