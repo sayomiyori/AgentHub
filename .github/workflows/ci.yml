@@ -83,7 +83,7 @@ jobs:
 
       - name: Mypy
         run: |
-          python -m mypy app/models/llm_usage.py app/services/usage_tracker.py app/metrics.py app/cache/semantic_cache.py app/platform app/api/internal app/db/platform.py app/models/telegram_job.py app/models/telegram_reply.py app/models/telegram_usage.py
+          python -m mypy app/models/llm_usage.py app/services/usage_tracker.py app/metrics.py app/cache/semantic_cache.py app/platform app/api/internal app/db/platform.py app/models/telegram_job.py app/models/telegram_reply.py app/models/telegram_usage.py app/workers/telegram_worker.py scripts/recover_telegram_jobs.py
 
       - name: Pytest
         run: pytest -q tests/

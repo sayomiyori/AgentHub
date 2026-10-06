@@ -344,7 +344,7 @@ MIT License. See [LICENSE](LICENSE) for details.
 ## Telegram platform migration checkpoint
 
 Platform job, usage and reply-outbox models use separate metadata from legacy
-standalone records. Processing and Telegram delivery are not implemented yet.
+standalone records. Reply publication and Telegram delivery are not implemented yet.
 `TELEGRAM_AI_ENABLED=false` keeps the standalone startup behavior. Enabling it
 requires three independent service keys, an explicit Groq model, a fixed WebHook
 origin and migration head `002_telegram_ai`; startup never stamps the database.
@@ -385,9 +385,8 @@ best-effort UUID notification to the dedicated `telegram_ai` queue. Broker outag
 still returns the durable receipt and leaves the job pending. Failed notification
 logs only a static warning. Replays always reauthorize current bot context.
 
-The processing worker and recovery scanner remain subsequent stages. The queue
-notification names `platform.process_telegram_job`; do not attach the legacy
-embedding worker to this queue. Pending admission is not an AI result or Telegram
+The queue notification names `platform.process_telegram_job`; do not attach the
+legacy embedding worker to this queue. Pending admission is not an AI result or Telegram
 delivery. Existing standalone routes and defaults retain their behavior.
 
 ## Bounded platform generation
@@ -408,4 +407,36 @@ operator's free account. Current GPT-OSS 20B and Qwen3.8 estimates use the
 retain historical estimates and do not establish current free-account access.
 The platform requires an explicit model and `GROQ_API_KEY`; model/account access
 must be verified separately before a live demo. No billing changes are made.
-Durable processing and delivery remain subsequent stages.
+Reply publication and delivery remain subsequent stages.
+
+## Durable Telegram AI processing
+
+With the migrated database and platform settings enabled, run the dedicated
+worker and independent scanner in separate processes:
+
+```powershell
+celery -A app.workers.telegram_worker:celery_app worker --concurrency=1 --queues=telegram_ai
+python -m scripts.recover_telegram_jobs
+```
+
+Use the Linux prefork worker for the enforced 25-second soft/30-second hard
+limits; Windows solo mode does not provide the same hard-kill behavior.
+This is a separate Celery app because the existing embedding app has no shared
+include configuration; its queue and startup remain independent.
+
+Claims use a database-clock 60-second lease, a new UUID and scope predicates.
+The first claim freezes the selected provider/model. Fresh active bot/tenant
+context and generation configuration are checked before a committed
+`call_started_at` marker. Result, scoped usage and immutable reply intent commit
+atomically; duplicate tasks reuse terminal state and never generate again.
+Only pre-call failures retry, at most five attempts with bounded exponential
+backoff. Quota/transport uncertainty after the marker becomes `unknown`, while
+confirmed permanent rejection or invalid completion becomes `failed`.
+
+The scanner checks up to 100 due rows every five seconds without depending on
+Celery beat. Expired pre-call claims can retry; expired call-started claims become
+`unknown`. Broker failure preserves pending rows and stops that scan's publisher
+loop. All notifications contain only job UUIDs. Fences prevent stale workers from
+starting calls or overwriting newer outcomes. Inspect unknown records before any
+separately approved operator reconciliation; no automatic second generation or
+manual retry API exists. `completed` means a durable result, not a sent answer.
