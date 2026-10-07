@@ -53,3 +53,12 @@ reproduced an answer envelope timestamp ending in `+03:00`, violating the UTC
 contract. Completion now converts the database clock to UTC before serializing
 `occurred_at`; lease comparisons continue to use the actual database clock.
 `test_answer_timestamp_remains_utc_with_non_utc_database_session` covers it.
+
+## Container packaging tool advisories - 2026-10-07
+
+The controlled Task8 image audit found advisory-bearing pip24.0 and
+setuptools79.0.1 inherited from the cached Python base/build environment.
+The Dockerfile now upgrades existing packaging tools to pip>=26.2 and
+setuptools>=83.0.0 before installing the unchanged application requirements.
+Verify the built image's installed package inventory with pip-audit; auditing
+only the developer virtualenv does not establish container dependency safety.
