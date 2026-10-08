@@ -96,8 +96,11 @@ def test_enabled_platform_rejects_invalid_field_with_other_fields_valid(override
         PlatformSettings(_env_file=None, **values)
 
 
-@pytest.mark.parametrize("enabled,reject", [(False, False), (True, False), (True, True)])
-def test_startup_validates_platform_before_legacy_schema(monkeypatch, enabled, reject):
+@pytest.mark.parametrize("enabled,read,reject", [
+    (False, False, False), (True, False, False), (True, False, True),
+    (False, True, False), (False, True, True),
+])
+def test_startup_validates_platform_before_legacy_schema(monkeypatch, enabled, read, reject):
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
@@ -105,7 +108,8 @@ def test_startup_validates_platform_before_legacy_schema(monkeypatch, enabled, r
     from app import main
 
     calls = []
-    monkeypatch.setattr(main, "get_platform_settings", lambda: SimpleNamespace(telegram_ai_enabled=enabled))
+    monkeypatch.setattr(main, "get_platform_settings",
+                        lambda: SimpleNamespace(telegram_ai_enabled=enabled, read_enabled=read))
     monkeypatch.setattr(main.Base.metadata, "create_all", lambda **_: calls.append("legacy"))
     monkeypatch.setattr(main, "_refresh_storage_gauges", lambda: None)
     monkeypatch.setattr(main.mcp_client_manager, "startup", AsyncMock())
@@ -128,4 +132,4 @@ def test_startup_validates_platform_before_legacy_schema(monkeypatch, enabled, r
         assert calls == ["revision"]
     else:
         asyncio.run(start())
-        assert calls == (["revision"] if enabled else []) + ["legacy", "ready"]
+        assert calls == (["revision"] if enabled or read else []) + ["legacy", "ready"]

@@ -441,6 +441,32 @@ starting calls or overwriting newer outcomes. Inspect unknown records before any
 separately approved operator reconciliation; no automatic second generation or
 manual retry API exists. `completed` means a durable result, not a sent answer.
 
+## Tenant-scoped AI reads
+
+Set `PLATFORM_READ_ENABLED=true`, `AUTHFORTRESS_BASE_URL`, `WEBHOOK_INTERNAL_URL`
+and `WEBHOOK_AGENT_SERVICE_KEY` to enable read-only platform metadata. Defaults
+are disabled; reads require the existing platform migration head but do not
+require a provider key, model or running AI workers. Use trusted internal origins.
+
+Both routes require one AuthFortress access bearer. Each request checks fresh
+`ai.read` permission (owner or member) and active canonical bot/tenant context:
+
+- `GET /api/v1/tenants/{tenant_id}/bots/{bot_id}/ai/jobs?limit=50`: job metadata
+  only, ordered by ascending UUID, with an optional UUID `cursor` and limit 1..100.
+  Response: `items` and `next_cursor` (null when the page is complete). UUID order
+  is not chronological, and pages are not a snapshot of concurrently inserted jobs.
+- `GET /api/v1/tenants/{tenant_id}/bots/{bot_id}/ai/usage?start=<ISO8601>&end=<ISO8601>`:
+  required timezone-aware interval of at most 31 days, inclusive start/exclusive
+  end. Returns record count, input/output token totals and decimal-string
+  `estimated_cost_usd` (scientific notation is possible). Estimates are not bills.
+
+Missing/revoked authentication returns 401; inaccessible/inactive scope returns
+404; issuer/context unavailability returns 503; invalid parameters return 422.
+Disabled routes return 404. No messages, answers, chat IDs, claims or credentials
+are returned. SQL always filters tenant and bot together. Global standalone APIs
+are unchanged, do not expose these tables and must remain private; this addition
+does not make legacy RAG, document, cache or usage routes tenant-safe.
+
 ## Signed answer publication
 
 Run the separate publication worker and scanner alongside the AI processes:

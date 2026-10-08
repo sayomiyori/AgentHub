@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from app.api.internal.telegram import router as telegram_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.documents import router as documents_router
+from app.api.v1.platform_reads import router as platform_reads_router
 from app.api.v1.query import router as query_router
 from app.api.v1.usage import router as usage_router
 from app.config import get_settings
@@ -34,7 +35,8 @@ def _refresh_storage_gauges() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if get_platform_settings().telegram_ai_enabled:
+    platform = get_platform_settings()
+    if platform.telegram_ai_enabled or platform.read_enabled:
         require_platform_schema(engine)
     Base.metadata.create_all(bind=engine)
     _refresh_storage_gauges()
@@ -48,6 +50,7 @@ app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 app.mount("/mcp", create_mcp_starlette_app())
 
 app.include_router(telegram_router)
+app.include_router(platform_reads_router)
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(query_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
