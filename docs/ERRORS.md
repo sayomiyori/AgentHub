@@ -1,5 +1,19 @@
 # Reproduced defects (2026-10-03)
 
+## 2026-10-09: Optional semantic cache resilience
+
+Redis read/write errors escaped the optional cache and interrupted RAG requests.
+Reads now become misses and writes become no-ops, with 0.5 s socket/connect
+timeouts and no transport retry. Malformed/oversized JSON, expired timestamps,
+invalid vectors and unusable source/answer data are ignored. Hits no longer
+renew an entry's age. Metadata rejection precedes vector comparison.
+
+`python -m pytest tests/test_semantic_cache_resilience.py -q`: 22 passed.
+Full suite: 250 passed; Ruff and the CI Mypy scope passed. Independent adversarial
+review approved after huge-number, malformed source and invalid UTF-8/NUL cases.
+The legacy cache remains global and has no document-change invalidation;
+it must not be exposed as tenant-safe RAG.
+
 - Cache hits returned the original generation's tokens and cost, charging the message again. `test_rag_http_cache_and_usage` reproduced `15 != 0`; cache hits now report zero incremental generation tokens/cost and create no new usage row.
 - Duplicate document tasks appended duplicate chunks (`2` stored vs `chunk_count=1`). `test_document_worker_duplicate_does_not_duplicate_chunks` reproduced this. Processing now locks the document row until the atomic final commit and skips already-ready documents.
 - Invalid embedding dimensions poisoned the SQLAlchemy transaction; error handling raised `PendingRollbackError` instead of marking the document failed. `test_worker_database_failure_marks_document_failed` reproduced this. Error handling rolls back before reading/updating failure status; embedding count mismatches raise instead of silently dropping chunks.

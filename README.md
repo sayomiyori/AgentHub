@@ -1,5 +1,11 @@
 # AgentHub
 
+Current local verification (2026-10-09): 250 tests passed with PostgreSQL/pgvector
+and Redis; Ruff and the CI Mypy scope passed. Optional semantic cache failures
+fall back to retrieval; cache entries retain their original maximum age and
+malformed data is ignored. This does not add tenant isolation to legacy RAG,
+documents or cache. Keep those standalone APIs private.
+
 [![CI](https://github.com/sayomiyori/AgentHub/actions/workflows/ci.yml/badge.svg)](https://github.com/sayomiyori/AgentHub/actions)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](#)
@@ -490,4 +496,5 @@ Publication has at most ten attempts, a 60-second database-clock fenced lease
 and backoff capped at 60 seconds. Authentication/content rejection stops retries;
 the exact readiness409 `ingress_publication_not_ready` remains retryable.
 WebHook's answer admission and Telegram sender must be deployed before enabling
-these processes; their end-to-end behavior remains unverified at this checkpoint.
+these processes. The NexusCore controlled end-to-end chain passed again on
+2026-10-09; live provider/delivery acceptance requires its separate authorization.
