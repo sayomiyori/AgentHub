@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -34,6 +35,15 @@ class UsageView(BaseModel):
     input_tokens: int
     output_tokens: int
     estimated_cost_usd: Decimal
+
+
+class ConfigurationView(BaseModel):
+    tenant_id: UUID
+    bot_id: UUID
+    scope: Literal["platform"] = "platform"
+    provider: Literal["groq"]
+    model: str | None
+    processing_enabled: bool
 
 
 def list_jobs(db: Session, tenant_id: UUID, bot_id: UUID, cursor: UUID | None, limit: int) -> JobPage:

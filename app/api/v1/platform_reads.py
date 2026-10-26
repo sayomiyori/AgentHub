@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.platform.bot_context import BotContextClient, ContextDenied, ContextUnavailable
 from app.platform.config import PlatformSettings, get_platform_settings
-from app.platform.reads import JobPage, UsageView, list_jobs, read_usage
+from app.platform.reads import ConfigurationView, JobPage, UsageView, list_jobs, read_usage
 from app.platform.tenant_access import TenantAccessClient
 
 
@@ -47,6 +48,16 @@ async def authorize_scope(
 
 router = APIRouter(prefix="/api/v1/tenants/{tenant_id}/bots/{bot_id}/ai", tags=["platform AI"],
                    dependencies=[Depends(authorize_scope)])
+
+
+@router.get("/configuration", response_model=ConfigurationView)
+def configuration(tenant_id: UUID, bot_id: UUID,
+                  config: PlatformSettings = Depends(get_platform_settings)) -> ConfigurationView:
+    # Only process policy is exposed; credentials and readiness are not inspected.
+    if config.model and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", config.model):
+        raise HTTPException(503, "Configuration unavailable")
+    return ConfigurationView(tenant_id=tenant_id, bot_id=bot_id, provider=config.provider,
+                             model=config.model or None, processing_enabled=config.telegram_ai_enabled)
 
 
 @router.get("/jobs", response_model=JobPage)

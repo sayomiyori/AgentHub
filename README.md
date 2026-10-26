@@ -1,5 +1,10 @@
 # AgentHub
 
+Tenant-authorized read-only Telegram AI configuration is documented in
+[platform configuration](docs/platform-configuration.md). It reports shared
+operator process policy without credentials or provider calls; it is not a
+per-bot configuration editor.
+
 Current local verification (2026-10-09): 250 tests passed with PostgreSQL/pgvector
 and Redis; Ruff and the CI Mypy scope passed. Optional semantic cache failures
 fall back to retrieval; cache entries retain their original maximum age and
