@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.telegram_job import TelegramAIJob
 from app.models.telegram_reply import TelegramReplyOutbox
 from app.models.telegram_usage import TelegramAIUsage
+from app.platform.ai_settings import effective_model
 from app.platform.config import get_platform_settings
 from app.platform.schemas import IngressEnvelope, JobReceipt
 from app.services.llm.base import LLMResponse
@@ -63,8 +64,10 @@ def claim_job(db: Session, job_id: UUID) -> JobClaim | None:
     job.claim_id = uuid4()
     job.lease_until = now + timedelta(seconds=60)
     job.attempts += 1
-    job.provider = job.provider or config.provider
-    job.model = job.model or config.model
+    if job.provider is None or job.model is None:
+        policy = effective_model(db, job.tenant_id, job.bot_id, config)
+        job.provider = job.provider or policy.provider
+        job.model = job.model if job.model is not None else policy.model or ""
     job.updated_at = now
     job.error_code = None
     return JobClaim(job.id, job.claim_id, job.tenant_id, job.bot_id,

@@ -1,5 +1,20 @@
 # Reproduced defects (2026-10-03)
 
+## 2026-10-26: Invalid operator model could fail before a bounded job claim
+
+The unshipped settings resolver rejected invalid operator identifiers that
+enabled PlatformSettings still accepted. claim_job runs before the processor's
+generation try block, so a configuration ValueError could roll back the claim
+and leave a job pending for scanner publication. Independent review reproduced
+the accepted invalid config and throwing resolver; no real provider was used.
+
+Enabled startup now requires the same shared ASCII model-identifier guard used
+by saved settings, read metadata and generation validation. Invalid enabled
+operator settings fail startup; invalid frozen job models fail before provider
+access in the existing bounded generation error path. Disabled reads retain
+their fixed unavailable error. Startup regressions include HTML/query/newline
+identifiers. No existing deployment configuration was changed.
+
 ## 2026-10-09: Optional semantic cache resilience
 
 Redis read/write errors escaped the optional cache and interrupted RAG requests.

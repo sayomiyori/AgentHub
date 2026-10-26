@@ -7,6 +7,7 @@ from app.config import get_settings
 from app.db.platform import PlatformBase
 from app.db.session import Base
 from app.models import (  # noqa: F401
+    ai_settings,
     chunk,
     conversation,
     document,

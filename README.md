@@ -1,5 +1,10 @@
 # AgentHub
 
+Persisted tenant defaults and bot model overrides are documented in
+[tenant AI settings](docs/tenant-ai-settings.md). Saves require fresh owner
+ai.configure authorization, optimistic revisions and atomic audit receipts;
+they do not enable AI or replace an already-claimed job's model.
+
 Tenant-authorized read-only Telegram AI configuration is documented in
 [platform configuration](docs/platform-configuration.md). It reports shared
 operator process policy without credentials or provider calls; it is not a
@@ -358,7 +363,7 @@ Platform job, usage and reply-outbox models use separate metadata from legacy
 standalone records. Telegram delivery is not implemented yet.
 `TELEGRAM_AI_ENABLED=false` keeps the standalone startup behavior. Enabling it
 requires three independent service keys, an explicit Groq model, a fixed WebHook
-origin and migration head `002_telegram_ai`; startup never stamps the database.
+origin and migration head `003_ai_settings`; startup never stamps the database.
 
 For a new isolated PostgreSQL database, configure `DATABASE_URL` and run:
 
@@ -368,11 +373,14 @@ python -m alembic check
 ```
 
 The baseline creates five standalone tables and the vector extension; the second
-revision adds three platform tables. Do not apply the baseline blindly to an
+revision adds three platform tables; the third adds model settings and revision
+audit. Do not apply the baseline blindly to an
 existing `create_all` database or automatically stamp it. Compare its actual
 schema with the frozen baseline and plan explicit operator-approved adoption.
-A rollback to `001_legacy_baseline` removes the three platform tables and requires
-confirmation before executing DROP; test only in an empty isolated database.
+A rollback from `003_ai_settings` to `002_telegram_ai` removes the two settings/
+audit tables. Continuing to `001_legacy_baseline` removes all five platform
+tables (settings, audit, jobs, usage and reply outbox) and requires confirmation
+before DROP; test only in a new empty isolated database. Standalone tables remain.
 
 ## Signed Telegram admission checkpoint
 

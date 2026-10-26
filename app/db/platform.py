@@ -6,7 +6,7 @@ class PlatformBase(DeclarativeBase):
     """Separate metadata prevents legacy create_all from creating platform data."""
 
 
-PLATFORM_REVISION = "002_telegram_ai"
+PLATFORM_REVISION = "003_ai_settings"
 
 
 def require_platform_schema(engine: Engine) -> None:

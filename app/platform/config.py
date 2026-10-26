@@ -1,9 +1,12 @@
+import re
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}")
 
 
 class PlatformSettings(BaseSettings):
@@ -57,7 +60,7 @@ class PlatformSettings(BaseSettings):
                 or any(c.isspace() or ord(c) < 32 for c in origin)
             ):
                 raise ValueError("A fixed internal origin is required")
-        if self.telegram_ai_enabled and (not self.model.strip() or self.model != self.model.strip()):
+        if self.telegram_ai_enabled and not MODEL_IDENTIFIER.fullmatch(self.model):
             raise ValueError("An explicit platform model is required")
         return self
 

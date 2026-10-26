@@ -1,7 +1,7 @@
 from openai import APIStatusError
 
 from app.config import get_settings
-from app.platform.config import get_platform_settings
+from app.platform.config import MODEL_IDENTIFIER, get_platform_settings
 from app.platform.prompts import SYSTEM_PROMPT
 from app.services.llm.base import LLMResponse
 from app.services.llm.groq import GroqCompletionError, GroqProvider
@@ -27,7 +27,7 @@ def validate_generation_configuration(model: str) -> None:
     settings = get_platform_settings()
     if (
         not settings.telegram_ai_enabled or settings.provider != "groq"
-        or not model.strip() or model != model.strip() or len(model) > 128
+        or not MODEL_IDENTIFIER.fullmatch(model)
         or not get_settings().groq_api_key.strip()
     ):
         raise GenerationConfigurationError("Platform generation is not configured")

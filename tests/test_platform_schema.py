@@ -83,6 +83,9 @@ def test_enabled_platform_accepts_independent_configuration():
     {"WEBHOOK_AGENT_SERVICE_KEY": "a" * 32},
     {"AGENT_WEBHOOK_REPLY_KEY": "short"},
     {"TELEGRAM_AI_MODEL": " padded "},
+    {"TELEGRAM_AI_MODEL": "<bad>"},
+    {"TELEGRAM_AI_MODEL": "model?key=synthetic"},
+    {"TELEGRAM_AI_MODEL": "model\ninvalid"},
 ])
 def test_enabled_platform_rejects_invalid_field_with_other_fields_valid(override):
     from app.platform.config import PlatformSettings
