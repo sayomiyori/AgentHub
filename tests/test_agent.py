@@ -177,6 +177,15 @@ class TestAgentMultiTool:
 class TestConversationHistory:
     """Verify that existing messages from conversation are loaded into prompt."""
 
+    def test_mcp_list_result_sources_are_supported(self) -> None:
+        from app.services.agent.orchestrator import AgentOrchestrator
+        sources = AgentOrchestrator()._collect_kb_sources([{
+            "tool": "local.search_documents",
+            "result": [{"document_title": "source", "chunk_text": "knowledge", "score": None}],
+        }])
+        assert sources == [{"chunk_id": None, "document_title": "source",
+                            "chunk_text_preview": "knowledge", "score": 0.0}]
+
     def test_history_included_in_prompt(self) -> None:
         history_msg1 = MagicMock()
         history_msg1.role = MagicMock()
@@ -191,6 +200,7 @@ class TestConversationHistory:
         history_msg2.id = 2
 
         db = MagicMock()
+        db.query.return_value.join.return_value = db.query.return_value
         db.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [
             history_msg2,
             history_msg1,

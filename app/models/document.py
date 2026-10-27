@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
+from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, Enum, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,6 +27,8 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    tenant_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
+    content_revision: Mapped[UUID] = mapped_column(default=uuid4, server_default=func.gen_random_uuid(), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[ContentType] = mapped_column(Enum(ContentType), nullable=False)
     upload_status: Mapped[UploadStatus] = mapped_column(

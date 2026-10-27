@@ -82,9 +82,9 @@ class LLMFactory:
                 duration_s=dt,
             )
             return resp
-        except Exception as exc:
+        except Exception:
             dt = time.perf_counter() - t0
-            logger.warning("Primary LLM failed (%s): %s", primary.name, exc)
+            logger.warning("Primary LLM failed (%s)", primary.name)
             observe_llm_response(
                 provider=primary.name,
                 model=resolved_model or "",

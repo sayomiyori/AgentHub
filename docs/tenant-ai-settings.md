@@ -30,19 +30,17 @@ After an uncertain write outcome, reload the stored revision before retrying.
 ## Migration and deployment boundary
 
 `003_ai_settings` adds current settings and append-only audit tables after the
-published `002_telegram_ai`. Startup with platform reads/processing enabled now
-requires the new head. Legacy standalone disabled startup remains unchanged.
-Existing applied revisions are not edited. This work does not adopt/migrate an
-existing deployment. In particular, the separate original checkout's unpublished
-`003_tenant_resources` line must be explicitly reviewed and merged before a
-deployment combining both lines. Do not copy this migration into that checkout
-or stamp an existing database to bypass the graph.
+published `002_telegram_ai`. `004_merge_ai_resources` joins that history with
+the separate `003_tenant_resources` history without modifying either revision.
+Enabled platform startup requires the merged head. Existing deployments require
+separately reviewed adoption and verified backups; do not stamp an existing
+database to bypass the graph. This candidate has not been deployed.
 
 Only in a new empty owned test database:
 
 ```powershell
 python -m alembic upgrade head
-python -m alembic downgrade -1
+python -m alembic downgrade 003_tenant_resources
 python -m alembic upgrade head
 python -m alembic check
 python -m pytest tests/ -q
@@ -53,4 +51,7 @@ python -m mypy app/platform app/api/v1/ai_settings.py app/models/ai_settings.py
 The full suite needs the documented separate PostgreSQL/Redis test URLs. Its
 legacy test DB also needs the vector extension. A Docker test process must not
 inherit CELERY_BROKER_URL overriding REDIS_URL in the broker-outage probe.
+The migration branch test also requires `AGENTHUB_CREATE_ISOLATED_TEST_DATABASES=yes`;
+it creates uniquely named test databases and retains them. Set it only after
+verifying the PostgreSQL instance belongs to the isolated test fixture.
 No production/retained database may be downgraded as verification.

@@ -13,8 +13,8 @@ per-bot configuration editor.
 Current local verification (2026-10-09): 250 tests passed with PostgreSQL/pgvector
 and Redis; Ruff and the CI Mypy scope passed. Optional semantic cache failures
 fall back to retrieval; cache entries retain their original maximum age and
-malformed data is ignored. This does not add tenant isolation to legacy RAG,
-documents or cache. Keep those standalone APIs private.
+malformed data is ignored. In platform mode, tenant resource access requires
+fresh issuer authorization and global standalone resource APIs remain closed.
 
 [![CI](https://github.com/sayomiyori/AgentHub/actions/workflows/ci.yml/badge.svg)](https://github.com/sayomiyori/AgentHub/actions)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](#)
@@ -360,10 +360,12 @@ MIT License. See [LICENSE](LICENSE) for details.
 ## Telegram platform migration checkpoint
 
 Platform job, usage and reply-outbox models use separate metadata from legacy
-standalone records. Telegram delivery is not implemented yet.
-`TELEGRAM_AI_ENABLED=false` keeps the standalone startup behavior. Enabling it
+standalone records. Telegram reply delivery has controlled acceptance; live
+activation requires a separately reviewed deployment and credentials.
+Keeping `TELEGRAM_AI_ENABLED`, `PLATFORM_READ_ENABLED` and
+`PLATFORM_TENANT_ENABLED` false preserves standalone startup behavior. Enabling AI
 requires three independent service keys, an explicit Groq model, a fixed WebHook
-origin and migration head `003_ai_settings`; startup never stamps the database.
+origin and migration head `004_merge_ai_resources`; startup never stamps the database.
 
 For a new isolated PostgreSQL database, configure `DATABASE_URL` and run:
 
@@ -373,14 +375,23 @@ python -m alembic check
 ```
 
 The baseline creates five standalone tables and the vector extension; the second
-revision adds three platform tables; the third adds model settings and revision
-audit. Do not apply the baseline blindly to an
+revision adds three platform tables; the two 003 branches add resource scope
+and model settings with revision audit, and 004 joins their migration histories.
+Do not apply the baseline blindly to an
 existing `create_all` database or automatically stamp it. Compare its actual
 schema with the frozen baseline and plan explicit operator-approved adoption.
-A rollback from `003_ai_settings` to `002_telegram_ai` removes the two settings/
-audit tables. Continuing to `001_legacy_baseline` removes all five platform
-tables (settings, audit, jobs, usage and reply outbox) and requires confirmation
-before DROP; test only in a new empty isolated database. Standalone tables remain.
+At the merge, `downgrade -1` is ambiguous. On a new isolated database only,
+`downgrade 003_tenant_resources` removes the marker and leaves two heads;
+rolling back either parent can
+remove the other branch's settings/audit tables or tenant scope and document
+revisions. Continuing to `001_legacy_baseline` removes all five platform tables.
+Never downgrade an existing database as a verification step.
+
+`PLATFORM_TENANT_ENABLED=false` by default. Enabling it requires a fixed
+`AUTHFORTRESS_BASE_URL` and exposes resource routes under the tenant prefix.
+When any platform mode is active, unscoped resource, MCP and metrics routes are
+closed. An uncertain document queue receipt may leave a pending document;
+automatic recovery for that outcome is not established.
 
 ## Signed Telegram admission checkpoint
 
@@ -406,7 +417,9 @@ logs only a static warning. Replays always reauthorize current bot context.
 
 The queue notification names `platform.process_telegram_job`; do not attach the
 legacy embedding worker to this queue. Pending admission is not an AI result or Telegram
-delivery. Existing standalone routes and defaults retain their behavior.
+delivery. Standalone resource lists retain their previous unbounded ordering;
+uploads now validate size/content and use random exclusive filenames, and an
+unknown conversation ID returns 404. Platform modes close global resources.
 
 ## Bounded platform generation
 
@@ -426,7 +439,7 @@ operator's free account. Current GPT-OSS 20B and Qwen3.8 estimates use the
 retain historical estimates and do not establish current free-account access.
 The platform requires an explicit model and `GROQ_API_KEY`; model/account access
 must be verified separately before a live demo. No billing changes are made.
-Telegram delivery remains a subsequent stage.
+Telegram delivery is a separate stage after generation.
 
 ## Durable Telegram AI processing
 
@@ -482,9 +495,9 @@ Both routes require one AuthFortress access bearer. Each request checks fresh
 Missing/revoked authentication returns 401; inaccessible/inactive scope returns
 404; issuer/context unavailability returns 503; invalid parameters return 422.
 Disabled routes return 404. No messages, answers, chat IDs, claims or credentials
-are returned. SQL always filters tenant and bot together. Global standalone APIs
-are unchanged, do not expose these tables and must remain private; this addition
-does not make legacy RAG, document, cache or usage routes tenant-safe.
+are returned. SQL always filters tenant and bot together. Standalone APIs do not
+expose these tables and must remain private; platform resource routes enforce
+their separately authorized tenant scope.
 
 ## Signed answer publication
 

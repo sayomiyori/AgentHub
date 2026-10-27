@@ -81,6 +81,7 @@ def get_cached_rag_answer(
     top_k: int,
     provider: str | None,
     model: str | None,
+    namespace: str = "",
 ) -> dict[str, Any] | None:
     r = _redis()
     if r is None:
@@ -88,7 +89,7 @@ def get_cached_rag_answer(
         return None
 
     bucket = _lsh_bucket_key(embedding)
-    key = _cache_key(bucket)
+    key = _cache_key(f"{namespace}:{bucket}" if namespace else bucket)
     try:
         entries = _entries(r.get(key))
     except (redis.RedisError, UnicodeError):
@@ -120,7 +121,7 @@ def get_cached_rag_answer(
         except UnicodeError:
             continue
         if (meta.get("top_k") != top_k or meta.get("provider", "") != (provider or "")
-            or meta.get("model", "") != (model or "")):
+            or meta.get("model", "") != (model or "") or meta.get("namespace", "") != namespace):
             continue
         emb = entry.get("embedding")
         if not isinstance(emb, list) or any(type(x) not in (int, float) for x in emb):
@@ -146,16 +147,17 @@ def set_cached_rag_answer(
     provider: str | None,
     model: str | None,
     payload: dict[str, Any],
+    namespace: str = "",
 ) -> None:
     r = _redis()
     if r is None:
         return
 
     bucket = _lsh_bucket_key(embedding)
-    key = _cache_key(bucket)
+    key = _cache_key(f"{namespace}:{bucket}" if namespace else bucket)
     entry = {
         "embedding": embedding,
-        "meta": {"top_k": top_k, "provider": provider or "", "model": model or ""},
+        "meta": {"top_k": top_k, "provider": provider or "", "model": model or "", "namespace": namespace},
         "payload": payload,
         "ts": time.time(),
     }

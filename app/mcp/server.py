@@ -7,6 +7,7 @@ from starlette.applications import Starlette
 
 from app.db.session import SessionLocal
 from app.models.document import Document
+from app.platform.resource_access import require_standalone
 from app.services.rag.embedder import GeminiEmbedder
 from app.services.rag.reranker import SimpleReranker
 from app.services.rag.retriever import PgVectorRetriever
@@ -35,6 +36,7 @@ def create_mcp_starlette_app() -> Starlette:
 
     @mcp.tool(name="search_documents", description="Semantic search over uploaded documents (RAG).")
     def search_documents(query: str, top_k: int = 5) -> list[dict[str, str | float]]:
+        require_standalone()
         db = SessionLocal()
         try:
             embedder = GeminiEmbedder()
@@ -58,9 +60,10 @@ def create_mcp_starlette_app() -> Starlette:
 
     @mcp.tool(name="list_documents", description="List uploaded documents and processing status.")
     def mcp_list_documents() -> list[dict[str, str | int]]:
+        require_standalone()
         db = SessionLocal()
         try:
-            rows = db.query(Document).order_by(Document.id.desc()).limit(500).all()
+            rows = db.query(Document).filter(Document.tenant_id.is_(None)).order_by(Document.id.desc()).limit(500).all()
             return [
                 {
                     "id": d.id,
@@ -75,9 +78,10 @@ def create_mcp_starlette_app() -> Starlette:
 
     @mcp.resource("document://{document_id}")
     def document_resource(document_id: str) -> str:
+        require_standalone()
         db = SessionLocal()
         try:
-            doc = db.get(Document, int(document_id))
+            doc = db.query(Document).filter(Document.id == int(document_id), Document.tenant_id.is_(None)).first()
             if not doc:
                 return ""
             return _read_document_text(doc.file_path, doc.content_type.value)

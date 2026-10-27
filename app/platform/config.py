@@ -18,6 +18,7 @@ class PlatformSettings(BaseSettings):
     )
     telegram_ai_enabled: bool = Field(default=False, alias="TELEGRAM_AI_ENABLED")
     read_enabled: bool = Field(default=False, alias="PLATFORM_READ_ENABLED")
+    tenant_enabled: bool = Field(default=False, alias="PLATFORM_TENANT_ENABLED")
     auth_url: str = Field(default="", alias="AUTHFORTRESS_BASE_URL")
     provider: Literal["groq"] = Field(default="groq", alias="TELEGRAM_AI_PROVIDER")
     model: str = Field(default="", alias="TELEGRAM_AI_MODEL", max_length=128)
@@ -28,7 +29,7 @@ class PlatformSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_enabled(self) -> "PlatformSettings":
-        if not self.telegram_ai_enabled and not self.read_enabled:
+        if not self.telegram_ai_enabled and not self.read_enabled and not self.tenant_enabled:
             return self
         keys = [
             x.get_secret_value()
@@ -36,13 +37,15 @@ class PlatformSettings(BaseSettings):
                 self.ingress_key,
                 self.context_key,
                 self.reply_key,
-            ) if self.telegram_ai_enabled else (self.context_key,))
+            ) if self.telegram_ai_enabled else ((self.context_key,) if self.read_enabled else ()))
         ]
         if any(len(x) < 32 or not x.isascii() or not x.isprintable() for x in keys):
             raise ValueError("Independent platform service keys are required")
         if len(set(keys)) != len(keys):
             raise ValueError("Platform service keys must be independent")
-        origins = [self.webhook_url, self.auth_url] if self.read_enabled else [self.webhook_url]
+        origins = [self.webhook_url] if self.telegram_ai_enabled or self.read_enabled else []
+        if self.read_enabled or self.tenant_enabled:
+            origins.append(self.auth_url)
         for origin in origins:
             url = urlsplit(origin)
             port = url.port  # Access validates nonnumeric and out-of-range ports.

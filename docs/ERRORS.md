@@ -1,5 +1,24 @@
 # Reproduced defects (2026-10-03)
 
+## 2026-10-27: Ambiguous relative downgrade at merge
+
+The candidate merge has two parents, so Alembic rejected `downgrade -1` with
+`Ambiguous walk` on an isolated PostgreSQL database. The verified offline SQL
+for `downgrade 003_tenant_resources` removes only the merge marker and restores
+both parent version rows; the test/CI commands now use the explicit target.
+Further branch downgrades can remove data and must not be used for verification.
+
+## 2026-10-27: Uncertain document acknowledgements
+
+The unified release candidate deleted the upload after any database commit error,
+even if the database committed but its acknowledgement was lost. A queue error
+also overwrote document status even though the worker could already have run.
+The upload now retains the file on an uncertain database result and does not
+change status on an uncertain queue result. These cases may leave an orphan file
+or a pending document and require operator reconciliation; they do not trigger
+automatic retries. `tests/test_document_uncertain_outcomes.py` reproduces both
+failure paths without contacting a database or broker.
+
 ## 2026-10-26: Invalid operator model could fail before a bounded job claim
 
 The unshipped settings resolver rejected invalid operator identifiers that

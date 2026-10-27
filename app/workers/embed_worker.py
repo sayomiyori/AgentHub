@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 from celery import Celery
 from pypdf import PdfReader
@@ -60,6 +61,7 @@ def process_document(document_id: int) -> None:
             db.bulk_save_objects(chunk_rows)
 
         document.chunk_count = len(chunk_rows)
+        document.content_revision = uuid4()
         document.upload_status = UploadStatus.ready
         db.commit()
     except Exception:

@@ -28,7 +28,8 @@ class TenantAccessClient:
         self.transport = transport
 
     async def authorize(self, tenant_id: UUID, bearer: SecretStr,
-                        permission: Literal["ai.read", "ai.configure"] = "ai.read") -> AuthorizedContext:
+                        permission: Literal["ai.read", "ai.configure"] = "ai.read", *,
+                        forbidden_status: Literal[403, 404] = 404) -> AuthorizedContext:
         try:
             async with (
                 asyncio.timeout(8),
@@ -42,6 +43,8 @@ class TenantAccessClient:
                 ) as response:
                     if response.status_code == 401:
                         raise HTTPException(401, "Invalid authentication")
+                    if response.status_code == 403 and forbidden_status == 403:
+                        raise HTTPException(403, "Insufficient permission")
                     if response.status_code in {403, 404}:
                         raise HTTPException(404, "Scope not found")
                     if (response.status_code != 200

@@ -1,12 +1,13 @@
 import math
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.conversation import Conversation, Message, MessageRole
+from app.platform.resource_access import read_scope
 from app.services.agent.orchestrator import AgentOrchestrator
 from app.services.rag_pipeline import RAGPipeline
 from app.services.usage_tracker import attach_message_id
@@ -28,8 +29,9 @@ def _safe_float(v: object) -> float:
 
 
 class QueryRequest(BaseModel):
-    question: str
-    conversation_id: int | None = None
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=8192)
+    conversation_id: int | None = Field(default=None, ge=1)
     top_k: int = Field(default=5, ge=1, le=20)
     use_agent: bool = True
     provider: str | None = Field(
@@ -42,12 +44,15 @@ class QueryRequest(BaseModel):
     )
 
 
-def _get_or_create_conversation(db: Session, question: str, conversation_id: int | None) -> Conversation:
-    if conversation_id:
-        conversation = db.get(Conversation, conversation_id)
+def _get_or_create_conversation(db: Session, question: str, conversation_id: int | None,
+                                tenant_id: UUID | None = None) -> Conversation:
+    if conversation_id is not None:
+        conversation = (db.query(Conversation)
+                        .filter(Conversation.id == conversation_id, Conversation.tenant_id == tenant_id).first())
         if conversation:
             return conversation
-    conversation = Conversation(title=question[:60] or "New conversation")
+        raise HTTPException(404, "Conversation not found")
+    conversation = Conversation(title=question[:60] or "New conversation", tenant_id=tenant_id)
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
@@ -55,9 +60,10 @@ def _get_or_create_conversation(db: Session, question: str, conversation_id: int
 
 
 @router.post("")
-def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
+def ask_question(payload: QueryRequest, tenant_id: UUID | None = Depends(read_scope),
+                 db: Session = Depends(get_db)) -> dict:
     request_id = str(uuid4())
-    conversation = _get_or_create_conversation(db, payload.question, payload.conversation_id)
+    conversation = _get_or_create_conversation(db, payload.question, payload.conversation_id, tenant_id)
 
     user_message = Message(
         conversation_id=conversation.id,
@@ -79,6 +85,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             provider=payload.provider,
             model=payload.model,
             request_id=request_id,
+            tenant_id=tenant_id,
         )
         source_payload = [
             {
@@ -105,6 +112,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
             model=payload.model,
             conversation_id=conversation.id,
             request_id=request_id,
+            tenant_id=tenant_id,
         )
         srcs = result.get("sources") or []
         source_payload = [
@@ -134,7 +142,7 @@ def ask_question(payload: QueryRequest, db: Session = Depends(get_db)) -> dict:
     )
     db.add(assistant_message)
     db.flush()
-    attach_message_id(db, request_id=request_id, message_id=assistant_message.id)
+    attach_message_id(db, request_id=request_id, message_id=assistant_message.id, tenant_id=tenant_id)
     db.commit()
 
     return {
