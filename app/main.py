@@ -22,6 +22,7 @@ from app.models.document import Document  # noqa: F401
 from app.models.llm_usage import LLMUsageRecord  # noqa: F401
 from app.platform.config import get_platform_settings
 from app.platform.resource_access import platform_active
+from app.services.rag.embedder import EmbeddingUnavailable
 
 settings = get_settings()
 
@@ -51,6 +52,11 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+
+
+@app.exception_handler(EmbeddingUnavailable)
+async def embedding_unavailable(_request: Request, _error: EmbeddingUnavailable) -> JSONResponse:
+    return JSONResponse({"detail": "Embedding service unavailable"}, status_code=503)
 
 app.mount("/mcp", create_mcp_starlette_app())
 

@@ -159,6 +159,8 @@ def generation(monkeypatch):
         return LLMResponse("Controlled answer", usage=LLMUsage(10, 5, 0.0001), provider="gemini", model="test")
 
     monkeypatch.setattr(GeminiProvider, "generate", generate)
+    # These tests replace the embedding provider with controlled vectors.
+    monkeypatch.setattr(GeminiEmbedder, "require_provider", lambda self: None)
     monkeypatch.setattr(GeminiEmbedder, "embed_query", lambda self, _: VECTOR)
     monkeypatch.setattr(GeminiEmbedder, "embed_texts", lambda self, texts: [VECTOR for _ in texts])
     return calls

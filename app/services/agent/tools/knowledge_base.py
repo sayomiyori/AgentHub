@@ -29,6 +29,8 @@ class KnowledgeBaseTool(BaseTool):
     def run(self, **kwargs: Any) -> dict[str, Any]:
         query = str(kwargs.get("query", "")).strip()
         top_k = max(1, min(int(kwargs.get("top_k", 5)), 20))
+        if self.tenant_id is not None:
+            self.rag_pipeline.embedder.require_provider()
         query_embedding = self.rag_pipeline.embedder.embed_query(query)
         candidates = self.rag_pipeline.retriever.retrieve(
             db=self.db, query_embedding=query_embedding, top_k=max(top_k * 3, 10), tenant_id=self.tenant_id

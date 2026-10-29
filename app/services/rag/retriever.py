@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 class PgVectorRetriever:
     def retrieve(self, db: Session, query_embedding: list[float], top_k: int = 5,
                  tenant_id: UUID | None = None) -> list[dict]:
-        vector_literal = "[" + ",".join(f"{x:.8f}" for x in query_embedding) + "]"
+        vector_literal = "[" + ",".join(f"{x:.9g}" for x in query_embedding) + "]"
         sql = text(
             """
             SELECT

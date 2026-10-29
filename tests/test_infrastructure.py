@@ -182,3 +182,98 @@ def test_failed_worker_cannot_overwrite_successful_concurrent_retry(real_db, mon
             assert db.query(Chunk).filter_by(document_id=document_id).count() == 1
     finally:
         engine.dispose()
+
+
+def test_provider_failure_marks_document_failed_without_chunks(real_db, monkeypatch, tmp_path):
+    from app.models.chunk import Chunk
+    from app.models.document import ContentType, Document, UploadStatus
+    from app.services.rag.embedder import EmbeddingUnavailable
+    from app.workers import embed_worker
+
+    path = tmp_path / "source.txt"
+    path.write_text("Synthetic test content", encoding="utf-8")
+    document = Document(title="source", content_type=ContentType.txt, file_path=str(path))
+    real_db.add(document)
+    real_db.commit()
+    monkeypatch.setattr(embed_worker, "SessionLocal", lambda: real_db)
+    monkeypatch.setattr(real_db, "close", lambda: None)
+
+    def fail(_self, _texts):
+        raise EmbeddingUnavailable()
+
+    monkeypatch.setattr(embed_worker.GeminiEmbedder, "embed_texts", fail)
+    with pytest.raises(EmbeddingUnavailable):
+        embed_worker.process_document.run(document.id)
+    assert real_db.get(Document, document.id).upload_status == UploadStatus.failed
+    assert real_db.query(Chunk).filter_by(document_id=document.id).count() == 0
+
+
+def test_agent_embedding_failure_preserves_usage(real_db, monkeypatch):
+    import json
+    from unittest.mock import Mock
+
+    from app.api.v1 import query
+    from app.db.session import get_db
+    from app.main import app
+    from app.models.conversation import Message, MessageRole
+    from app.models.llm_usage import LLMUsageRecord
+    from app.services.llm.base import LLMResponse, LLMUsage
+    from app.services.rag.embedder import EmbeddingUnavailable
+
+    generation = Mock(return_value=LLMResponse(
+        json.dumps({"type": "tool_call", "tool_name": "search_knowledge_base", "arguments": {"query": "x"}}),
+        usage=LLMUsage(10, 5, 0.001), provider="synthetic", model="synthetic",
+    ))
+    monkeypatch.setattr(query.orchestrator.llm_factory, "generate", generation)
+    monkeypatch.setattr(query.orchestrator.rag_pipeline.embedder, "embed_query",
+                        Mock(side_effect=EmbeddingUnavailable()))
+    app.dependency_overrides[get_db] = lambda: real_db
+    try:
+        result = TestClient(app).post("/api/v1/query", json={"question": "Synthetic question", "use_agent": True})
+        assert result.status_code == 200
+        payload = result.json()
+        assert payload["answer"] == "Knowledge base temporarily unavailable."
+        assert payload["sources"] == [] and payload["tokens_used"] == 15
+        assert generation.call_count == 1
+        usage = real_db.query(LLMUsageRecord).filter_by(request_id=payload["request_id"]).one()
+        message = real_db.query(Message).filter_by(id=usage.message_id).one()
+        assert usage.total_tokens == 15
+        assert message.role == MessageRole.assistant and message.content == payload["answer"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_tenant_without_embedding_provider_fails_without_chunks(real_db, monkeypatch, tmp_path):
+    from app.models.chunk import Chunk
+    from app.models.document import ContentType, Document, UploadStatus
+    from app.services.rag.embedder import EmbeddingUnavailable
+    from app.workers import embed_worker
+
+    path = tmp_path / "tenant-source.txt"
+    path.write_text("Synthetic tenant content", encoding="utf-8")
+    document = Document(title="source", content_type=ContentType.txt, file_path=str(path), tenant_id=uuid4())
+    real_db.add(document)
+    real_db.commit()
+    monkeypatch.setattr(embed_worker, "SessionLocal", lambda: real_db)
+    monkeypatch.setattr(real_db, "close", lambda: None)
+    with pytest.raises(EmbeddingUnavailable):
+        embed_worker.process_document.run(document.id)
+    assert real_db.get(Document, document.id).upload_status == UploadStatus.failed
+    assert real_db.query(Chunk).filter_by(document_id=document.id).count() == 0
+
+
+def test_small_query_vector_remains_nonzero_in_real_pgvector(real_db):
+    from app.models.chunk import Chunk
+    from app.models.document import ContentType, Document
+    from app.services.rag.retriever import PgVectorRetriever
+
+    tenant = uuid4()
+    document = Document(title="synthetic", content_type=ContentType.txt, file_path="unused", tenant_id=tenant)
+    real_db.add(document)
+    real_db.flush()
+    real_db.add(Chunk(document_id=document.id, text="synthetic", chunk_index=0,
+                      embedding=[1e-9] * 1536, meta={}))
+    real_db.commit()
+    result = PgVectorRetriever().retrieve(real_db, [1e-9] * 1536, tenant_id=tenant)
+    assert len(result) == 1
+    assert result[0]["score"] == pytest.approx(1.0, abs=1e-5)

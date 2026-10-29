@@ -32,6 +32,8 @@ class RAGPipeline:
         request_id: str | None = None,
         tenant_id: UUID | None = None,
     ) -> dict:
+        if tenant_id is not None:
+            self.embedder.require_provider()
         query_embedding = self.embedder.embed_query(question)
         corpus = (db.query(Document.id, Document.content_revision, Document.upload_status, Document.chunk_count)
                   .filter(Document.tenant_id == tenant_id).order_by(Document.id).all())

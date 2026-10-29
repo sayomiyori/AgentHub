@@ -35,6 +35,9 @@ def process_document(document_id: int) -> None:
         if not document or document.upload_status == UploadStatus.ready:
             return
 
+        if document.tenant_id is not None:
+            embedder.require_provider()
+
         document.upload_status = UploadStatus.processing
         db.flush()
 

@@ -16,6 +16,7 @@ from app.services.agent.tools.datetime_tool import DatetimeTool
 from app.services.agent.tools.knowledge_base import KnowledgeBaseTool
 from app.services.agent.tools.web_search import WebSearchTool
 from app.services.llm.factory import LLMFactory
+from app.services.rag.embedder import EmbeddingUnavailable
 from app.services.rag_pipeline import RAGPipeline
 from app.services.usage_tracker import record_llm_call
 
@@ -181,6 +182,16 @@ class AgentOrchestrator:
                     continue
                 try:
                     result = tool.run(**arguments)
+                except EmbeddingUnavailable:
+                    tools_called.append({"tool": tool_name, "arguments": arguments,
+                                         "result": {"error": "Knowledge base temporarily unavailable"}})
+                    return {
+                        "answer": "Knowledge base temporarily unavailable.",
+                        "tools_called": tools_called,
+                        "tokens_used": total_tokens,
+                        "cost_usd": round(total_cost, 8),
+                        "sources": [],
+                    }
                 except Exception:
                     result = {"error": "Tool execution unavailable"}
                 tools_called.append({"tool": tool_name, "arguments": arguments, "result": result})

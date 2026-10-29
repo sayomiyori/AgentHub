@@ -110,3 +110,45 @@ The Dockerfile now upgrades existing packaging tools to pip>=26.2 and
 setuptools>=83.0.0 before installing the unchanged application requirements.
 Verify the built image's installed package inventory with pip-audit; auditing
 only the developer virtualenv does not establish container dependency safety.
+
+## 2026-10-29: Configured embedding provider failures became fallback vectors
+
+With a configured Gemini client, an exception or an empty response produced a
+SHA-256-derived vector. Partial batch failures could therefore store mixed
+representations and mark the document ready. The existing no-key offline mode
+is retained for compatibility and is not semantic search evidence.
+
+A configured client now rejects exceptions and invalid vectors with a static
+`EmbeddingUnavailable` error. The document worker rolls back and marks failed;
+direct RAG requests return a fixed 503. Agent knowledge-tool failures stop further
+generation and return a fixed unavailable answer through the existing response
+path, preserving already incurred usage. Real PostgreSQL fixture checks verify
+no chunk persistence and retained linked usage. Existing stored vectors have no
+provenance metadata, and require a separate reindex/adoption decision.
+
+## 2026-10-29: Tenant indexing used standalone fallback without a provider
+
+Tenant document workers and both tenant search paths used deterministic offline
+vectors when Gemini was not configured. Tenant operations now require a provider
+client; standalone fallback remains for backward compatibility. A missing client
+marks a tenant document failed and prevents direct or agent knowledge retrieval.
+In the isolated no-network PostgreSQL/Redis fixture, 28 tests passed, including
+worker failure, tenant isolation and agent usage preservation.
+
+Review also reproduced pgvector cosine NaN at extreme float32 vector scales and
+eight-decimal query serialization rounding small values to zero. Provider vectors
+now reject unsafe cosine norms and query serialization keeps nine significant
+digits. Regressions include the actual pgvector search on the isolated fixture.
+Existing vectors still have no source metadata and are not repaired by this guard.
+
+## Gemini embedding output dimensions — 2026-10-29
+
+For `gemini-embedding-001`, document and query requests explicitly ask for 1536
+values, matching the existing database column. The older `models/embedding-001`
+does not support the dimension parameter and remains unchanged; other model
+identifiers also retain their existing request shape. Unexpected dimensions still
+fail closed. No model configuration, existing vector or database was changed.
+The supported parameter and the new model's 3072 default are documented at
+https://ai.google.dev/gemini-api/docs/embeddings and
+https://ai.google.dev/api/embeddings. This is an offline SDK boundary test, not
+verification against the live provider or proof of retrieval quality.
