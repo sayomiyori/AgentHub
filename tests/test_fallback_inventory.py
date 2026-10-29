@@ -49,25 +49,33 @@ def test_fallback_inventory_on_isolated_postgres():
         with engine.begin() as connection:
             name = connection.scalar(text("SELECT current_database()"))
             assert name.startswith("nexus_agent_ai_") and name.endswith("_test")
-        assert inventory(engine) == {"total": 0, "fallback_matches": 0, "unknown": 0}
+        assert inventory(engine) == {"total": 0, "fallback_matches": 0, "unknown": 0,
+                                     "documents_with_fallback": 0, "documents_with_unknown": 0}
         with Session(engine) as db:
             document = Document(title="synthetic", content_type=ContentType.txt, file_path="unused")
-            db.add(document)
+            second = Document(title="synthetic second", content_type=ContentType.txt, file_path="unused")
+            third = Document(title="synthetic third", content_type=ContentType.txt, file_path="unused")
+            db.add_all([document, second, third])
             db.flush()
             vector = GeminiEmbedder.__new__(GeminiEmbedder)._fallback_embedding("synthetic text")
             db.add_all([
                 Chunk(document_id=document.id, text="synthetic text", chunk_index=0, embedding=vector, meta={}),
                 Chunk(document_id=document.id, text="other", chunk_index=1, embedding=[0.5] * 1536, meta={}),
+                Chunk(document_id=document.id, text="synthetic text", chunk_index=2, embedding=vector, meta={}),
+                Chunk(document_id=second.id, text="other", chunk_index=0, embedding=[0.5] * 1536, meta={}),
+                Chunk(document_id=third.id, text="synthetic text", chunk_index=0, embedding=vector, meta={}),
             ])
             db.commit()
         before = inventory(engine)
         after = inventory(engine)
-        assert before == after == {"total": 2, "fallback_matches": 1, "unknown": 1}
+        assert before == after == {"total": 5, "fallback_matches": 3, "unknown": 2,
+                                   "documents_with_fallback": 2, "documents_with_unknown": 2}
         environment = {**os.environ, "DATABASE_URL": url}
         result = subprocess.run([sys.executable, "-m", "scripts.audit_embedding_fallback"],
                                 env=environment, capture_output=True, text=True, check=False)
         assert result.returncode == 0
-        assert result.stdout.strip() == '{"total": 2, "fallback_matches": 1, "unknown": 1}'
+        import json
+        assert json.loads(result.stdout) == before
         assert result.stderr == ""
     finally:
         engine.dispose()

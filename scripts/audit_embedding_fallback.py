@@ -17,17 +17,29 @@ def classify_vector(content: str, vector: list[float]) -> bool:
 
 
 def inventory(engine) -> dict[str, int]:
-    counts = {"total": 0, "fallback_matches": 0, "unknown": 0}
+    counts = {"total": 0, "fallback_matches": 0, "unknown": 0,
+              "documents_with_fallback": 0, "documents_with_unknown": 0}
+    previous_document = None
+    seen_fallback = seen_unknown = False
     with engine.connect() as connection:
         connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
         connection.execute(text("SET LOCAL statement_timeout = '30s'"))
         rows = connection.execution_options(stream_results=True).execute(
-            text("SELECT text, embedding::text FROM chunks")
+            text("SELECT document_id, text, embedding::text FROM chunks ORDER BY document_id, id")
         )
-        for content, serialized in rows:
+        for document_id, content, serialized in rows:
+            if document_id != previous_document:
+                previous_document = document_id
+                seen_fallback = seen_unknown = False
             match = classify_vector(content, json.loads(serialized))
             counts["total"] += 1
             counts["fallback_matches" if match else "unknown"] += 1
+            if match and not seen_fallback:
+                counts["documents_with_fallback"] += 1
+                seen_fallback = True
+            if not match and not seen_unknown:
+                counts["documents_with_unknown"] += 1
+                seen_unknown = True
     return counts
 
 
