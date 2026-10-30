@@ -316,3 +316,39 @@ def test_worker_records_source_and_embedding_provenance(real_db, monkeypatch, tm
     assert row.meta["embedding"] == expected
     embed_worker.process_document.run(document.id)
     assert real_db.query(Chunk).filter_by(document_id=document.id).count() == 1
+
+
+@pytest.mark.parametrize("change", ["replace", "remove"])
+def test_source_change_during_indexing_prevents_ready_commit(real_db, monkeypatch, tmp_path, change):
+    from app.models.chunk import Chunk
+    from app.models.document import ContentType, Document, UploadStatus
+    from app.workers import embed_worker
+
+    path = tmp_path / "changing-source.txt"
+    path.write_text("Synthetic original", encoding="utf-8")
+    document = Document(title="source", content_type=ContentType.txt, file_path=str(path))
+    real_db.add(document)
+    real_db.commit()
+    original = Chunk(document_id=document.id, text="Previously stored synthetic content",
+                     chunk_index=0, embedding=[0.5] * 1536, meta={"synthetic": "original"})
+    real_db.add(original)
+    real_db.commit()
+    monkeypatch.setattr(embed_worker, "SessionLocal", lambda: real_db)
+    monkeypatch.setattr(real_db, "close", lambda: None)
+
+    def embed(_self, texts):
+        if change == "replace":
+            path.write_text("Synthetic replacement", encoding="utf-8")
+        else:
+            path.unlink()
+        return [[0.5] * 1536 for _ in texts]
+
+    monkeypatch.setattr(embed_worker.GeminiEmbedder, "embed_texts", embed)
+    message = ("Document source changed during indexing" if change == "replace"
+               else "Document source unavailable after indexing")
+    with pytest.raises(ValueError, match=message):
+        embed_worker.process_document.run(document.id)
+    assert real_db.get(Document, document.id).upload_status == UploadStatus.failed
+    retained = real_db.query(Chunk).filter_by(document_id=document.id).one()
+    assert retained.id == original.id and retained.meta == {"synthetic": "original"}
+    assert retained.text == "Previously stored synthetic content"

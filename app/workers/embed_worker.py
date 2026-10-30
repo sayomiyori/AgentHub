@@ -57,6 +57,13 @@ def process_document(document_id: int) -> None:
         for i in range(0, len(chunks), batch_size):
             embeddings.extend(embedder.embed_texts(chunks[i : i + batch_size]))
 
+        try:
+            current_digest = hashlib.sha256(Path(document.file_path).read_bytes()).hexdigest()
+        except OSError:
+            raise ValueError("Document source unavailable after indexing") from None
+        if current_digest != source_digest:
+            raise ValueError("Document source changed during indexing")
+
         chunk_rows = []
         for idx, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
             chunk_rows.append(

@@ -152,3 +152,15 @@ The supported parameter and the new model's 3072 default are documented at
 https://ai.google.dev/gemini-api/docs/embeddings and
 https://ai.google.dev/api/embeddings. This is an offline SDK boundary test, not
 verification against the live provider or proof of retrieval quality.
+
+## 2026-10-30: Source file changed while indexing
+
+A source replacement or removal during provider work previously allowed the
+worker to commit ready chunks derived from the older input without noticing.
+Before writing chunks, the worker now compares the current source SHA-256 with
+the exact parsed snapshot and fails with a static error when they differ or the
+file is unreadable. The existing transaction rollback/failed-state path applies.
+This is an observed-change check, not a lock against external changes after the
+check. Generation activation still requires a separate source fence.
+Isolated PostgreSQL regressions exercise replacement, removal and existing
+worker idempotency/concurrent retry/tenant behavior.
