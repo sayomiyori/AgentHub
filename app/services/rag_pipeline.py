@@ -39,10 +39,19 @@ class RAGPipeline:
                   .filter(Document.tenant_id == tenant_id).order_by(Document.id).all())
         settings = get_settings()
         # Old in-flight writers retain their old corpus namespace after a committed change.
-        digest = hashlib.sha256(repr((corpus, settings.embedding_model, settings.llm_provider,
-                                      settings.llm_model, settings.llm_fallback_provider,
-                                      settings.llm_fallback_model)).encode()).hexdigest()
+        identity: tuple = (corpus, settings.embedding_model, settings.llm_provider, settings.llm_model,
+                    settings.llm_fallback_provider, settings.llm_fallback_model)
+        if tenant_id is not None:
+            identity = ("receipt-v1", corpus, self.embedder.model, settings.llm_provider, settings.llm_model,
+                        settings.llm_fallback_provider, settings.llm_fallback_model)
+        digest = hashlib.sha256(repr(identity).encode()).hexdigest()
         namespace = f"{tenant_id or 'legacy'}:{digest}"
+
+        candidates = None
+        if tenant_id is not None:
+            with rag_retrieval_timer():
+                candidates = self.retriever.retrieve(db=db, query_embedding=query_embedding, top_k=max(top_k * 3, 10),
+                                                     tenant_id=tenant_id, embedding_model=self.embedder.model)
 
         cached = get_cached_rag_answer(
             question,
@@ -56,8 +65,9 @@ class RAGPipeline:
             return {**cached, "semantic_cache_hit": True, "tokens_used": 0, "cost_usd": 0.0}
 
         with rag_retrieval_timer():
-            candidates = self.retriever.retrieve(db=db, query_embedding=query_embedding, top_k=max(top_k * 3, 10),
-                                                 tenant_id=tenant_id)
+            if candidates is None:
+                candidates = self.retriever.retrieve(db=db, query_embedding=query_embedding, top_k=max(top_k * 3, 10),
+                                                     tenant_id=tenant_id)
             reranked = self.reranker.rerank(candidates, top_k=top_k)
         answer, used_chunks, usage = self.generator.generate(
             question=question,

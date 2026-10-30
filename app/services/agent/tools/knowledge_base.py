@@ -33,7 +33,8 @@ class KnowledgeBaseTool(BaseTool):
             self.rag_pipeline.embedder.require_provider()
         query_embedding = self.rag_pipeline.embedder.embed_query(query)
         candidates = self.rag_pipeline.retriever.retrieve(
-            db=self.db, query_embedding=query_embedding, top_k=max(top_k * 3, 10), tenant_id=self.tenant_id
+            db=self.db, query_embedding=query_embedding, top_k=max(top_k * 3, 10), tenant_id=self.tenant_id,
+            embedding_model=self.rag_pipeline.embedder.model,
         )
         reranked = self.rag_pipeline.reranker.rerank(candidates, top_k=top_k)
         results = [

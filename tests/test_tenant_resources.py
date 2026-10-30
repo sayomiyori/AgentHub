@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.api.v1 import conversations, documents, query, usage
 from app.api.v1.platform_reads import get_access_client
 from app.cache import semantic_cache
+from app.config import get_settings
 from app.db.platform import require_platform_schema
 from app.db.session import get_db
 from app.models.chunk import Chunk
@@ -80,7 +81,9 @@ def seed(db, tenant, name, *, ready=True, path="unused"):
     db.add_all([document, conversation])
     db.flush()
     if ready:
-        db.add(Chunk(document_id=document.id, text=name + " knowledge", chunk_index=0, embedding=VECTOR, meta={}))
+        receipt = {"provider": "gemini", "model": get_settings().embedding_model, "dimensions": 1536}
+        db.add(Chunk(document_id=document.id, text=name + " knowledge", chunk_index=0, embedding=VECTOR,
+                     meta={"embedding": receipt}))
     db.add(Message(conversation_id=conversation.id, role=MessageRole.user, content=name + " history"))
     db.add(LLMUsageRecord(tenant_id=tenant, conversation_id=conversation.id, provider=name, model=name,
                           input_tokens=10, output_tokens=5, total_tokens=15, cost_usd=0.01))
@@ -149,7 +152,7 @@ def request(api, method, path, **kwargs):
 
 @pytest.fixture()
 def generation(monkeypatch):
-    from app.config import get_settings
+    from types import SimpleNamespace
     monkeypatch.setattr(get_settings(), "llm_provider", "gemini")
     monkeypatch.setattr(get_settings(), "llm_fallback_provider", "")
     calls = []
@@ -159,6 +162,10 @@ def generation(monkeypatch):
         return LLMResponse("Controlled answer", usage=LLMUsage(10, 5, 0.0001), provider="gemini", model="test")
 
     monkeypatch.setattr(GeminiProvider, "generate", generate)
+    def initialize(self):
+        self.model = get_settings().embedding_model
+        self.client = SimpleNamespace()
+    monkeypatch.setattr(GeminiEmbedder, "__init__", initialize)
     # These tests replace the embedding provider with controlled vectors.
     monkeypatch.setattr(GeminiEmbedder, "require_provider", lambda self: None)
     monkeypatch.setattr(GeminiEmbedder, "embed_query", lambda self, _: VECTOR)
@@ -265,7 +272,8 @@ def test_scoped_rag_cache_usage_and_foreign_conversation_are_isolated(api, db, c
     assert pipeline.ask(db, "own?", tenant_id=api[4])["sources"][0]["document_title"] == "foreign"
     assert len(generation) == 2
     assert pipeline.ask(db, "own?", tenant_id=uuid4())["sources"] == []
-    assert PgVectorRetriever().retrieve(db, VECTOR, tenant_id=api[3])[0]["document_id"] == own.id
+    assert PgVectorRetriever().retrieve(db, VECTOR, tenant_id=api[3],
+                                       embedding_model=get_settings().embedding_model)[0]["document_id"] == own.id
     assert PgVectorRetriever().retrieve(db, VECTOR, tenant_id=None)[0]["document_title"] == "legacy"
 
 
@@ -399,3 +407,64 @@ def test_global_http_and_direct_mcp_are_closed_in_each_platform_mode(monkeypatch
         with pytest.raises(HTTPException) as error:
             callback(*args)
         assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize("receipt", [None, {}, [], "invalid",
+    {"provider": "offline_sha256", "model": "sha256-v1", "dimensions": 1536},
+    {"provider": "gemini", "model": "wrong", "dimensions": 1536},
+    {"provider": "gemini", "model": "CURRENT", "dimensions": "1536"},
+    {"provider": "gemini", "model": "CURRENT", "dimensions": 768}])
+def test_tenant_search_rejects_incompatible_receipts_even_after_cache_hit(db, cache, generation, receipt):
+    from app.services.agent.tools.knowledge_base import KnowledgeBaseTool
+    from app.services.rag.embedder import EmbeddingUnavailable
+
+    tenant = uuid4()
+    document, _ = seed(db, tenant, "owned")
+    pipeline = RAGPipeline()
+    first = pipeline.ask(db, "question", tenant_id=tenant)
+    assert first["sources"] and len(generation) == 1
+    row = db.query(Chunk).filter_by(document_id=document.id).one()
+    if isinstance(receipt, dict) and receipt.get("model") == "CURRENT":
+        receipt = {**receipt, "model": pipeline.embedder.model}
+    row.meta = {"embedding": receipt}
+    db.commit()
+    with pytest.raises(EmbeddingUnavailable):
+        pipeline.ask(db, "question", tenant_id=tenant)
+    with pytest.raises(EmbeddingUnavailable):
+        KnowledgeBaseTool(db, pipeline, tenant).run(query="question")
+    assert len(generation) == 1
+
+
+def test_corpus_receipt_guard_checks_beyond_top_k_and_keeps_foreign_scope(db):
+    from app.services.rag.embedder import EmbeddingUnavailable
+
+    tenant, foreign = uuid4(), uuid4()
+    owned, _ = seed(db, tenant, "owned")
+    other, _ = seed(db, foreign, "foreign")
+    row = db.query(Chunk).filter_by(document_id=other.id).one()
+    row.meta = {}
+    db.commit()
+    retriever = PgVectorRetriever()
+    model = get_settings().embedding_model
+    assert retriever.retrieve(db, VECTOR, 1, tenant, model)[0]["document_id"] == owned.id
+    assert retriever.retrieve(db, VECTOR, 1, uuid4(), model) == []
+    db.add(Chunk(document_id=owned.id, text="invalid distant", chunk_index=1,
+                 embedding=[0.0, 1.0] + [0.0] * 1534, meta={}))
+    db.commit()
+    with pytest.raises(EmbeddingUnavailable):
+        retriever.retrieve(db, VECTOR, 1, tenant, model)
+
+
+def test_tenant_corpus_scan_limit_rejects_partial_search(db, monkeypatch):
+    from app.services.rag import retriever as module
+    from app.services.rag.embedder import EmbeddingUnavailable
+
+    tenant = uuid4()
+    first, _ = seed(db, tenant, "first")
+    seed(db, tenant, "second")
+    monkeypatch.setattr(module, "MAX_TENANT_SEARCH_CHUNKS", 1)
+    retriever = PgVectorRetriever()
+    with pytest.raises(EmbeddingUnavailable):
+        retriever.retrieve(db, VECTOR, 1, tenant, get_settings().embedding_model)
+    monkeypatch.setattr(module, "MAX_TENANT_SEARCH_CHUNKS", 2)
+    assert retriever.retrieve(db, VECTOR, 1, tenant, get_settings().embedding_model)

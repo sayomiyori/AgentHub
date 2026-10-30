@@ -46,6 +46,26 @@ def test_retrieval_preserves_small_nonzero_vector_values():
 
     db = Mock()
     db.execute.return_value.mappings.return_value.all.side_effect = [[{"chunk_id": 1}]]
-    PgVectorRetriever().retrieve(db, [1e-9] * 1536, tenant_id=uuid4())
+    PgVectorRetriever().retrieve(db, [1e-9] * 1536)
     vector = json.loads(db.execute.call_args.args[1]["query_embedding"])
     assert all(value != 0 for value in vector)
+
+
+def test_standalone_cache_identity_retains_previous_format(monkeypatch):
+    import hashlib
+    from types import SimpleNamespace
+
+    from app.services import rag_pipeline as module
+
+    settings = SimpleNamespace(embedding_model="configured", llm_provider="synthetic", llm_model="chosen",
+                               llm_fallback_provider="", llm_fallback_model="")
+    monkeypatch.setattr(module, "get_settings", lambda: settings)
+    pipeline = RAGPipeline.__new__(RAGPipeline)
+    pipeline.embedder = SimpleNamespace(model="different-runtime", embed_query=lambda _: [0.5] * 1536)
+    database = Mock()
+    database.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
+    cache = Mock(return_value={"answer": "cached", "sources": []})
+    monkeypatch.setattr(module, "get_cached_rag_answer", cache)
+    assert pipeline.ask(database, "question")["answer"] == "cached"
+    previous = ([], "configured", "synthetic", "chosen", "", "")
+    assert cache.call_args.kwargs["namespace"] == "legacy:" + hashlib.sha256(repr(previous).encode()).hexdigest()

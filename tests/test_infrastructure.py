@@ -272,9 +272,10 @@ def test_small_query_vector_remains_nonzero_in_real_pgvector(real_db):
     real_db.add(document)
     real_db.flush()
     real_db.add(Chunk(document_id=document.id, text="synthetic", chunk_index=0,
-                      embedding=[1e-9] * 1536, meta={}))
+                      embedding=[1e-9] * 1536, meta={"embedding": {
+                          "provider": "gemini", "model": "synthetic", "dimensions": 1536}}))
     real_db.commit()
-    result = PgVectorRetriever().retrieve(real_db, [1e-9] * 1536, tenant_id=tenant)
+    result = PgVectorRetriever().retrieve(real_db, [1e-9] * 1536, tenant_id=tenant, embedding_model="synthetic")
     assert len(result) == 1
     assert result[0]["score"] == pytest.approx(1.0, abs=1e-5)
 

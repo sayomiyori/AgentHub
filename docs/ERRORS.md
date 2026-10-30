@@ -183,3 +183,20 @@ embedding call. The validated operator setting defaults to 1000 and accepts
 no new chunks or partial embeddings are committed. Tests cover the exact limit
 and one over on isolated PostgreSQL with controlled embedding calls. This is a
 chunk-count bound, not a guarantee about parsing memory, elapsed time or billing.
+
+## 2026-10-30: Tenant search did not enforce recorded embedding model
+
+Tenant retrieval previously compared vectors without checking their recorded
+embedding source/model, and an old cached answer could hide a newly invalid
+receipt. The shared tenant pgvector query now checks the exact Gemini/model/1536
+receipt for the full selected corpus in the same SQL snapshot as vector selection.
+Missing, malformed, offline or mismatched receipts fail with the existing fixed
+embedding-unavailable path. Direct RAG validates before cache access, tenant cache
+policy is versioned, and the agent passes its query embedder's actual model.
+Standalone queries and cache identities remain compatible.
+
+The intermediate guard materializes at most 10001 tenant chunks and fails closed
+above 10000; this bounds row count, not row bytes or elapsed time. Recorded
+metadata is not independent proof of quality or vector origin. This check does
+not implement the future generation activation fence or complete concurrent
+corpus/cache snapshot semantics. Existing unknown vectors are not reindexed.
