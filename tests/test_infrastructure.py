@@ -352,3 +352,38 @@ def test_source_change_during_indexing_prevents_ready_commit(real_db, monkeypatc
     retained = real_db.query(Chunk).filter_by(document_id=document.id).one()
     assert retained.id == original.id and retained.meta == {"synthetic": "original"}
     assert retained.text == "Previously stored synthetic content"
+
+
+@pytest.mark.parametrize("within_limit", [True, False])
+def test_document_chunk_budget_precedes_provider_calls(real_db, monkeypatch, tmp_path, within_limit):
+    from unittest.mock import Mock
+
+    from app.models.chunk import Chunk
+    from app.models.document import ContentType, Document, UploadStatus
+    from app.services.rag.chunker import TextChunker
+    from app.workers import embed_worker
+
+    content = "synthetic content " * 100
+    count = len(TextChunker(chunk_size=500, chunk_overlap=50).split(content))
+    assert count > 1
+    monkeypatch.setattr(embed_worker.settings, "max_document_chunks", count if within_limit else count - 1)
+    path = tmp_path / "budget-source.txt"
+    path.write_text(content, encoding="utf-8")
+    document = Document(title="source", content_type=ContentType.txt, file_path=str(path))
+    real_db.add(document)
+    real_db.commit()
+    monkeypatch.setattr(embed_worker, "SessionLocal", lambda: real_db)
+    monkeypatch.setattr(real_db, "close", lambda: None)
+    provider = Mock(side_effect=lambda texts: [[0.5] * 1536 for _ in texts])
+    monkeypatch.setattr(embed_worker.GeminiEmbedder, "embed_texts", lambda self, texts: provider(texts))
+    if within_limit:
+        embed_worker.process_document.run(document.id)
+        assert document.upload_status == UploadStatus.ready
+        assert real_db.query(Chunk).filter_by(document_id=document.id).count() == count
+        assert sum(len(call.args[0]) for call in provider.call_args_list) == count
+    else:
+        with pytest.raises(ValueError, match="Document exceeds embedding chunk limit"):
+            embed_worker.process_document.run(document.id)
+        assert document.upload_status == UploadStatus.failed
+        provider.assert_not_called()
+        assert real_db.query(Chunk).filter_by(document_id=document.id).count() == 0

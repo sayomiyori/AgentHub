@@ -173,3 +173,13 @@ one total attempt. Genuine SDK tests over local HTTP transport prove no repeat
 request for 429, 503 and a read timeout; errors remain static without provider
 details. This bounds individual transport operations, not total document time
 or all SDK execution. No live provider or deployment was used for verification.
+
+## 2026-10-30: Limit embedding work per document
+
+A valid upload could split into many chunks and trigger a provider request for
+each. The worker now checks MAX_DOCUMENT_CHUNKS after splitting and before any
+embedding call. The validated operator setting defaults to 1000 and accepts
+1..10000. Larger documents follow the existing failed-state transaction path;
+no new chunks or partial embeddings are committed. Tests cover the exact limit
+and one over on isolated PostgreSQL with controlled embedding calls. This is a
+chunk-count bound, not a guarantee about parsing memory, elapsed time or billing.

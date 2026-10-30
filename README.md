@@ -321,6 +321,7 @@ credentials, masked metadata and no token readback. Keep real keys in local
 | `LLM_PROVIDER` | Default provider (`gemini`) |
 | `LLM_MODEL` | Default model |
 | `EMBEDDING_MODEL` | Embedding model |
+| `MAX_DOCUMENT_CHUNKS` | Per-document limit before embedding calls; default 1000, range 1–10000. Larger documents fail indexing. |
 | `SEMANTIC_CACHE_ENABLED` | `true` / `false` |
 | `MCP_SERVERS` | JSON list of `{name, url}` |
 | `LLM_FALLBACK_PROVIDER` | Fallback if primary fails |

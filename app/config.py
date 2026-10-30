@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     llm_fallback_provider: str = Field(default="", alias="LLM_FALLBACK_PROVIDER")
     llm_fallback_model: str = Field(default="", alias="LLM_FALLBACK_MODEL")
     embedding_model: str = Field(default="models/embedding-001", alias="EMBEDDING_MODEL")
+    max_document_chunks: int = Field(default=1000, ge=1, le=10000, alias="MAX_DOCUMENT_CHUNKS")
 
     # JSON array: [{"name":"github","url":"https://..."}, ...] or leave empty
     mcp_servers: str = Field(default="", alias="MCP_SERVERS")

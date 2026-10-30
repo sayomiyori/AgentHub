@@ -52,6 +52,8 @@ def process_document(document_id: int) -> None:
         provenance = {"provider": "gemini" if embedder.client is not None else "offline_sha256",
                       "model": embedder.model if embedder.client is not None else "sha256-v1", "dimensions": 1536}
         chunks = chunker.split(text)
+        if len(chunks) > settings.max_document_chunks:
+            raise ValueError("Document exceeds embedding chunk limit")
         embeddings = []
         batch_size = 512
         for i in range(0, len(chunks), batch_size):
