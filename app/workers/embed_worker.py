@@ -1,3 +1,5 @@
+import hashlib
+from io import BytesIO, StringIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,11 +18,14 @@ celery_app = Celery("agenthub", broker=settings.redis_url, backend=settings.redi
 
 
 def _read_document_text(file_path: str, content_type: str) -> str:
-    path = Path(file_path)
+    return _parse_document_bytes(Path(file_path).read_bytes(), content_type)
+
+
+def _parse_document_bytes(source: bytes, content_type: str) -> str:
     if content_type in {"txt", "md"}:
-        return path.read_text(encoding="utf-8")
+        return StringIO(source.decode("utf-8"), newline=None).read()
     if content_type == "pdf":
-        reader = PdfReader(str(path))
+        reader = PdfReader(BytesIO(source))
         return "\n".join((page.extract_text() or "") for page in reader.pages)
     raise ValueError(f"Unsupported content type: {content_type}")
 
@@ -41,7 +46,11 @@ def process_document(document_id: int) -> None:
         document.upload_status = UploadStatus.processing
         db.flush()
 
-        text = _read_document_text(document.file_path, document.content_type.value)
+        source = Path(document.file_path).read_bytes()
+        source_digest = hashlib.sha256(source).hexdigest()
+        text = _parse_document_bytes(source, document.content_type.value)
+        provenance = {"provider": "gemini" if embedder.client is not None else "offline_sha256",
+                      "model": embedder.model if embedder.client is not None else "sha256-v1", "dimensions": 1536}
         chunks = chunker.split(text)
         embeddings = []
         batch_size = 512
@@ -56,7 +65,8 @@ def process_document(document_id: int) -> None:
                     text=chunk_text,
                     chunk_index=idx,
                     embedding=embedding,
-                    meta={"source": document.title, "chunk_index": idx},
+                    meta={"source": document.title, "chunk_index": idx,
+                          "source_sha256": source_digest, "embedding": provenance},
                     token_count=max(len(chunk_text) // 4, 1),
                 )
             )

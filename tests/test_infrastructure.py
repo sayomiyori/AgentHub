@@ -277,3 +277,42 @@ def test_small_query_vector_remains_nonzero_in_real_pgvector(real_db):
     result = PgVectorRetriever().retrieve(real_db, [1e-9] * 1536, tenant_id=tenant)
     assert len(result) == 1
     assert result[0]["score"] == pytest.approx(1.0, abs=1e-5)
+
+
+@pytest.mark.parametrize("provider_mode", ["offline", "gemini"])
+def test_worker_records_source_and_embedding_provenance(real_db, monkeypatch, tmp_path, provider_mode):
+    import hashlib
+
+    from app.models.chunk import Chunk
+    from app.models.document import ContentType, Document, UploadStatus
+    from app.workers import embed_worker
+
+    if provider_mode == "gemini":
+        from types import SimpleNamespace
+
+        from app.services.rag.embedder import GeminiEmbedder
+
+        instance = GeminiEmbedder.__new__(GeminiEmbedder)
+        instance.model = "models/gemini-embedding-001"
+        instance.client = SimpleNamespace(models=SimpleNamespace(embed_content=lambda **_: SimpleNamespace(
+            embeddings=[SimpleNamespace(values=[0.5] * 1536)])))
+        monkeypatch.setattr(embed_worker, "GeminiEmbedder", lambda: instance)
+
+    source = b"Synthetic source\r\nsecond line"
+    path = tmp_path / "source.txt"
+    path.write_bytes(source)
+    document = Document(title="synthetic", content_type=ContentType.txt, file_path=str(path))
+    real_db.add(document)
+    real_db.commit()
+    monkeypatch.setattr(embed_worker, "SessionLocal", lambda: real_db)
+    monkeypatch.setattr(real_db, "close", lambda: None)
+    embed_worker.process_document.run(document.id)
+    row = real_db.query(Chunk).filter_by(document_id=document.id).one()
+    assert document.upload_status == UploadStatus.ready
+    assert row.meta["source_sha256"] == hashlib.sha256(source).hexdigest()
+    expected = {"provider": "offline_sha256", "model": "sha256-v1", "dimensions": 1536}
+    if provider_mode == "gemini":
+        expected = {"provider": "gemini", "model": "models/gemini-embedding-001", "dimensions": 1536}
+    assert row.meta["embedding"] == expected
+    embed_worker.process_document.run(document.id)
+    assert real_db.query(Chunk).filter_by(document_id=document.id).count() == 1
