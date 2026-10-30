@@ -113,6 +113,52 @@ def test_document_worker_duplicate_does_not_duplicate_chunks(real_db, monkeypatc
     assert real_db.query(Chunk).filter_by(document_id=document.id).count() == document.chunk_count == 1
 
 
+@pytest.mark.parametrize("outcome", ["replace", "empty", "insert_failure"])
+def test_document_retry_replaces_chunks_atomically(real_db, monkeypatch, tmp_path, outcome):
+    from sqlalchemy.exc import StatementError
+
+    from app.models.chunk import Chunk
+    from app.models.document import ContentType, Document, UploadStatus
+    from app.workers import embed_worker
+
+    path = tmp_path / "replacement.txt"
+    path.write_text("" if outcome == "empty" else "replacement source", encoding="utf-8")
+    document = Document(title="retry", content_type=ContentType.txt, file_path=str(path),
+                        upload_status=UploadStatus.failed, chunk_count=1)
+    other = Document(title="untouched", content_type=ContentType.txt, file_path="unused", tenant_id=uuid4())
+    real_db.add_all([document, other])
+    real_db.flush()
+    retained = Chunk(document_id=document.id, text="old source", chunk_index=0,
+                     embedding=[1.0] * 1536, meta={"retained": True})
+    untouched = Chunk(document_id=other.id, text="other source", chunk_index=0,
+                      embedding=[1.0] * 1536, meta={})
+    real_db.add_all([retained, untouched])
+    real_db.commit()
+    old_id, other_id, revision = retained.id, untouched.id, document.content_revision
+    monkeypatch.setattr(embed_worker, "SessionLocal", lambda: real_db)
+    monkeypatch.setattr(real_db, "close", lambda: None)
+    dimension = 1 if outcome == "insert_failure" else 1536
+    monkeypatch.setattr(embed_worker.GeminiEmbedder, "embed_texts",
+                        lambda self, texts: [[1.0] * dimension for _ in texts])
+    if outcome == "insert_failure":
+        with pytest.raises(StatementError):
+            embed_worker.process_document.run(document.id)
+        rows = real_db.query(Chunk).filter_by(document_id=document.id).all()
+        assert [(row.id, row.text, row.meta) for row in rows] == [(old_id, "old source", {"retained": True})]
+        assert document.upload_status == UploadStatus.failed
+        assert document.chunk_count == 1 and document.content_revision == revision
+    else:
+        embed_worker.process_document.run(document.id)
+        rows = real_db.query(Chunk).filter_by(document_id=document.id).all()
+        assert [row.text for row in rows] == ([] if outcome == "empty" else ["replacement source"])
+        assert all(row.id != old_id for row in rows)
+        assert document.upload_status == UploadStatus.ready
+        assert document.chunk_count == len(rows) and document.content_revision != revision
+        embed_worker.process_document.run(document.id)
+        assert real_db.query(Chunk).filter_by(document_id=document.id).count() == len(rows)
+    assert real_db.query(Chunk.text).filter(Chunk.id == other_id).scalar() == "other source"
+
+
 def test_worker_database_failure_marks_document_failed(real_db, monkeypatch, tmp_path):
     from app.models.document import ContentType, Document, UploadStatus
     from app.workers import embed_worker

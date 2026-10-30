@@ -212,3 +212,15 @@ It fails closed rather than returning a partial corpus. Direct RAG checks before
 cache reads; the agent uses the same guard. Foreign tenants and documents without
 chunks do not block the selected corpus, and retained chunks are not deleted.
 This is a per-query eligibility check, not the planned generation activation fence.
+
+## 2026-10-30: Successful document retries appended to retained chunks
+
+A retry of a non-ready document could append replacement chunks to the rows
+retained from an earlier attempt, leaving stale text or mixed embedding receipts.
+After source validation and candidate construction, the worker now replaces only
+that document's chunks within its existing locked transaction. An empty parsed
+source produces an empty replacement. Failed insertion rolls back the deletion
+and preserves prior chunks, count and revision. Ready duplicate jobs remain
+no-ops. Real PostgreSQL regressions cover replacement, empty input, insertion
+failure and preservation of another document. This does not implement tenant-wide
+generation activation or change the shared retrieval compatibility policy.

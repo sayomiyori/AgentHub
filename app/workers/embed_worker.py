@@ -79,6 +79,7 @@ def process_document(document_id: int) -> None:
                     token_count=max(len(chunk_text) // 4, 1),
                 )
             )
+        db.query(Chunk).filter(Chunk.document_id == document.id).delete(synchronize_session=False)
         if chunk_rows:
             db.bulk_save_objects(chunk_rows)
 
