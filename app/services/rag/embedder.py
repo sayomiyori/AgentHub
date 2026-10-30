@@ -19,7 +19,10 @@ class GeminiEmbedder:
     def __init__(self) -> None:
         settings = get_settings()
         self.model = settings.embedding_model
-        self.client = genai.Client(api_key=settings.gemini_api_key) if settings.gemini_api_key else None
+        self.client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=types.HttpOptions(timeout=20000, retry_options=types.HttpRetryOptions(attempts=1)),
+        ) if settings.gemini_api_key else None
 
     def require_provider(self) -> None:
         if self.client is None:

@@ -164,3 +164,12 @@ This is an observed-change check, not a lock against external changes after the
 check. Generation activation still requires a separate source fence.
 Isolated PostgreSQL regressions exercise replacement, removal and existing
 worker idempotency/concurrent retry/tenant behavior.
+
+## 2026-10-30: Explicit embedding SDK request limits
+
+Embedding client construction previously left request timeout and transport
+retry policy to SDK defaults. It now sets a 20,000 ms SDK request timeout and
+one total attempt. Genuine SDK tests over local HTTP transport prove no repeat
+request for 429, 503 and a read timeout; errors remain static without provider
+details. This bounds individual transport operations, not total document time
+or all SDK execution. No live provider or deployment was used for verification.
