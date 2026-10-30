@@ -468,3 +468,36 @@ def test_tenant_corpus_scan_limit_rejects_partial_search(db, monkeypatch):
         retriever.retrieve(db, VECTOR, 1, tenant, get_settings().embedding_model)
     monkeypatch.setattr(module, "MAX_TENANT_SEARCH_CHUNKS", 2)
     assert retriever.retrieve(db, VECTOR, 1, tenant, get_settings().embedding_model)
+
+
+@pytest.mark.parametrize("status", [UploadStatus.pending, UploadStatus.processing, UploadStatus.failed])
+def test_tenant_search_rejects_nonready_document_with_retained_chunks(db, cache, generation, status):
+    from app.services.agent.tools.knowledge_base import KnowledgeBaseTool
+    from app.services.rag.embedder import EmbeddingUnavailable
+
+    tenant = uuid4()
+    document, _ = seed(db, tenant, "owned")
+    pipeline = RAGPipeline()
+    first = pipeline.ask(db, "question", tenant_id=tenant)
+    assert first["sources"] and len(generation) == 1
+    document.upload_status = status
+    db.commit()
+    with pytest.raises(EmbeddingUnavailable):
+        pipeline.ask(db, "question", tenant_id=tenant)
+    with pytest.raises(EmbeddingUnavailable):
+        KnowledgeBaseTool(db, pipeline, tenant).run(query="question")
+    assert len(generation) == 1
+    assert db.query(Chunk).filter_by(document_id=document.id).count() == 1
+
+
+def test_corpus_readiness_guard_keeps_tenant_and_chunk_scope(db):
+    tenant, foreign = uuid4(), uuid4()
+    owned, _ = seed(db, tenant, "owned")
+    other, _ = seed(db, foreign, "foreign")
+    other.upload_status = UploadStatus.failed
+    for status in (UploadStatus.pending, UploadStatus.processing, UploadStatus.failed):
+        db.add(Document(tenant_id=tenant, title=status.value, content_type=ContentType.txt,
+                        file_path="unused", upload_status=status))
+    db.commit()
+    results = PgVectorRetriever().retrieve(db, VECTOR, 1, tenant, get_settings().embedding_model)
+    assert [row["document_id"] for row in results] == [owned.id]

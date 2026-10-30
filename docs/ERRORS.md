@@ -200,3 +200,15 @@ above 10000; this bounds row count, not row bytes or elapsed time. Recorded
 metadata is not independent proof of quality or vector origin. This check does
 not implement the future generation activation fence or complete concurrent
 corpus/cache snapshot semantics. Existing unknown vectors are not reindexed.
+
+## 2026-10-30: Tenant search could return retained chunks from failed documents
+
+The worker preserves previous chunks on a failed reindex for recovery, but tenant
+retrieval checked only their embedding receipts. A cached or newly generated
+answer could therefore use chunks belonging to a pending, processing or failed
+document. The shared tenant query now requires every selected chunk's document
+to be ready in the same SQL snapshot as receipt validation and vector selection.
+It fails closed rather than returning a partial corpus. Direct RAG checks before
+cache reads; the agent uses the same guard. Foreign tenants and documents without
+chunks do not block the selected corpus, and retained chunks are not deleted.
+This is a per-query eligibility check, not the planned generation activation fence.

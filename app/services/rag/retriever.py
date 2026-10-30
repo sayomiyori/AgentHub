@@ -20,7 +20,7 @@ class PgVectorRetriever:
             rows = db.execute(text("""
                 WITH corpus AS MATERIALIZED (
                     SELECT c.id AS chunk_id, c.document_id, c.text AS chunk_text,
-                           c.metadata, c.embedding, d.title AS document_title
+                           c.metadata, c.embedding, d.title AS document_title, d.upload_status
                     FROM chunks c JOIN documents d ON d.id = c.document_id
                     WHERE d.tenant_id = CAST(:tenant_id AS uuid)
                     LIMIT :corpus_fetch_limit
@@ -28,6 +28,7 @@ class PgVectorRetriever:
                     SELECT (SELECT count(*) FROM corpus) <= :corpus_limit AND NOT EXISTS (
                         SELECT 1 FROM corpus
                         WHERE metadata->'embedding' IS DISTINCT FROM CAST(:receipt AS jsonb)
+                           OR upload_status IS DISTINCT FROM 'ready'
                     ) AS ok
                 )
                 SELECT compatibility.ok AS corpus_compatible, hits.*

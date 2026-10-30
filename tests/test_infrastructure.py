@@ -264,11 +264,12 @@ def test_tenant_without_embedding_provider_fails_without_chunks(real_db, monkeyp
 
 def test_small_query_vector_remains_nonzero_in_real_pgvector(real_db):
     from app.models.chunk import Chunk
-    from app.models.document import ContentType, Document
+    from app.models.document import ContentType, Document, UploadStatus
     from app.services.rag.retriever import PgVectorRetriever
 
     tenant = uuid4()
-    document = Document(title="synthetic", content_type=ContentType.txt, file_path="unused", tenant_id=tenant)
+    document = Document(title="synthetic", content_type=ContentType.txt, file_path="unused", tenant_id=tenant,
+                        upload_status=UploadStatus.ready, chunk_count=1)
     real_db.add(document)
     real_db.flush()
     real_db.add(Chunk(document_id=document.id, text="synthetic", chunk_index=0,
