@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.services.rag.embedder import EmbeddingUnavailable
 
 MAX_TENANT_SEARCH_CHUNKS = 10000
+MAX_TENANT_SEARCH_DOCUMENTS = 10000
 
 
 class PgVectorRetriever:
@@ -18,17 +19,33 @@ class PgVectorRetriever:
                 raise EmbeddingUnavailable()
             receipt = json.dumps({"provider": "gemini", "model": embedding_model, "dimensions": 1536})
             rows = db.execute(text("""
-                WITH corpus AS MATERIALIZED (
+                WITH scoped_documents AS MATERIALIZED (
+                    SELECT id, title, upload_status, chunk_count
+                    FROM documents WHERE tenant_id = CAST(:tenant_id AS uuid)
+                    LIMIT :document_fetch_limit
+                ), corpus AS MATERIALIZED (
                     SELECT c.id AS chunk_id, c.document_id, c.text AS chunk_text,
-                           c.metadata, c.embedding, d.title AS document_title, d.upload_status
-                    FROM chunks c JOIN documents d ON d.id = c.document_id
-                    WHERE d.tenant_id = CAST(:tenant_id AS uuid)
+                           c.metadata, c.embedding, c.chunk_index,
+                           d.title AS document_title, d.upload_status
+                    FROM chunks c JOIN scoped_documents d ON d.id = c.document_id
                     LIMIT :corpus_fetch_limit
                 ), compatibility AS (
-                    SELECT (SELECT count(*) FROM corpus) <= :corpus_limit AND NOT EXISTS (
+                    SELECT (SELECT count(*) FROM scoped_documents) <= :document_limit
+                    AND (SELECT count(*) FROM corpus) <= :corpus_limit AND NOT EXISTS (
                         SELECT 1 FROM corpus
                         WHERE metadata->'embedding' IS DISTINCT FROM CAST(:receipt AS jsonb)
                            OR upload_status IS DISTINCT FROM 'ready'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM scoped_documents d
+                        LEFT JOIN corpus c ON c.document_id = d.id
+                        GROUP BY d.id, d.chunk_count, d.upload_status
+                        HAVING (count(c.chunk_id) > 0 OR d.upload_status = 'ready') AND (
+                            d.chunk_count <> count(c.chunk_id)
+                            OR count(DISTINCT c.chunk_index) <> count(c.chunk_id)
+                            OR (count(c.chunk_id) > 0 AND (
+                                min(c.chunk_index) <> 0 OR max(c.chunk_index) <> count(c.chunk_id) - 1
+                            ))
+                        )
                     ) AS ok
                 )
                 SELECT compatibility.ok AS corpus_compatible, hits.*
@@ -41,7 +58,9 @@ class PgVectorRetriever:
             """), {"tenant_id": tenant_id, "receipt": receipt,
                    "query_embedding": vector_literal, "top_k": top_k,
                    "corpus_limit": MAX_TENANT_SEARCH_CHUNKS,
-                   "corpus_fetch_limit": MAX_TENANT_SEARCH_CHUNKS + 1}).mappings().all()
+                   "corpus_fetch_limit": MAX_TENANT_SEARCH_CHUNKS + 1,
+                   "document_limit": MAX_TENANT_SEARCH_DOCUMENTS,
+                   "document_fetch_limit": MAX_TENANT_SEARCH_DOCUMENTS + 1}).mappings().all()
             if not rows or rows[0]["corpus_compatible"] is not True:
                 raise EmbeddingUnavailable()
             return [{key: value for key, value in row.items() if key != "corpus_compatible"}

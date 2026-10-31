@@ -450,6 +450,7 @@ def test_corpus_receipt_guard_checks_beyond_top_k_and_keeps_foreign_scope(db):
     assert retriever.retrieve(db, VECTOR, 1, uuid4(), model) == []
     db.add(Chunk(document_id=owned.id, text="invalid distant", chunk_index=1,
                  embedding=[0.0, 1.0] + [0.0] * 1534, meta={}))
+    owned.chunk_count = 2
     db.commit()
     with pytest.raises(EmbeddingUnavailable):
         retriever.retrieve(db, VECTOR, 1, tenant, model)
@@ -501,3 +502,56 @@ def test_corpus_readiness_guard_keeps_tenant_and_chunk_scope(db):
     db.commit()
     results = PgVectorRetriever().retrieve(db, VECTOR, 1, tenant, get_settings().embedding_model)
     assert [row["document_id"] for row in results] == [owned.id]
+
+
+@pytest.mark.parametrize("corruption", ["missing_all", "missing_one", "duplicate", "gap",
+                                         "negative_index", "count_too_small", "count_too_large", "negative_count"])
+def test_tenant_search_rejects_incomplete_corpus_before_cache_and_agent(db, cache, generation, corruption):
+    from app.services.agent.tools.knowledge_base import KnowledgeBaseTool
+    from app.services.rag.embedder import EmbeddingUnavailable
+
+    tenant = uuid4()
+    document, _ = seed(db, tenant, "owned")
+    first = db.query(Chunk).filter_by(document_id=document.id).one()
+    second = Chunk(document_id=document.id, text="second source", chunk_index=1, embedding=VECTOR,
+                   meta=first.meta)
+    db.add(second)
+    document.chunk_count = 2
+    db.commit()
+    pipeline = RAGPipeline()
+    assert pipeline.ask(db, "question", tenant_id=tenant)["sources"]
+    assert len(generation) == 1
+    if corruption == "missing_all":
+        db.query(Chunk).filter_by(document_id=document.id).delete(synchronize_session=False)
+    elif corruption == "missing_one":
+        db.delete(second)
+    elif corruption in {"duplicate", "gap", "negative_index"}:
+        second.chunk_index = {"duplicate": 0, "gap": 2, "negative_index": -1}[corruption]
+    else:
+        document.chunk_count = {"count_too_small": 1, "count_too_large": 3, "negative_count": -1}[corruption]
+    db.commit()
+    with pytest.raises(EmbeddingUnavailable):
+        pipeline.ask(db, "question", tenant_id=tenant)
+    with pytest.raises(EmbeddingUnavailable):
+        KnowledgeBaseTool(db, pipeline, tenant).run(query="question")
+    assert len(generation) == 1
+
+
+def test_tenant_document_scan_limit_and_empty_documents(db, monkeypatch):
+    from app.services.rag import retriever as module
+    from app.services.rag.embedder import EmbeddingUnavailable
+
+    tenant = uuid4()
+    owned, _ = seed(db, tenant, "owned")
+    db.add(Document(tenant_id=tenant, title="empty", content_type=ContentType.txt, file_path="unused",
+                    upload_status=UploadStatus.ready, chunk_count=0))
+    db.add(Document(tenant_id=uuid4(), title="foreign incomplete", content_type=ContentType.txt,
+                    file_path="unused", upload_status=UploadStatus.ready, chunk_count=1))
+    db.commit()
+    monkeypatch.setattr(module, "MAX_TENANT_SEARCH_DOCUMENTS", 2, raising=False)
+    retriever = PgVectorRetriever()
+    model = get_settings().embedding_model
+    assert [row["document_id"] for row in retriever.retrieve(db, VECTOR, 1, tenant, model)] == [owned.id]
+    monkeypatch.setattr(module, "MAX_TENANT_SEARCH_DOCUMENTS", 1)
+    with pytest.raises(EmbeddingUnavailable):
+        retriever.retrieve(db, VECTOR, 1, tenant, model)

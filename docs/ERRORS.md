@@ -224,3 +224,18 @@ and preserves prior chunks, count and revision. Ready duplicate jobs remain
 no-ops. Real PostgreSQL regressions cover replacement, empty input, insertion
 failure and preservation of another document. This does not implement tenant-wide
 generation activation or change the shared retrieval compatibility policy.
+
+## 2026-10-31: Tenant retrieval accepted structurally incomplete indexes
+
+Ready status and matching embedding receipts did not prove that all declared
+chunks were present. Lost rows, duplicate or invalid indexes and incorrect
+document counts could still produce partial answers, including cache hits.
+The shared tenant SQL now compares actual counts with document.chunk_count and
+requires unique indexes covering 0..count-1 in the same snapshot as hit selection.
+Ready documents claiming missing chunks are included even if all their rows are
+gone. Declared empty ready documents remain valid. Foreign tenant corruption is
+excluded, standalone behavior is unchanged, and no data is repaired or deleted.
+The shared query caps selected documents at 10000 as well as its existing chunk
+cap; exceeding either returns fixed unavailable rather than partial results.
+These are structural checks, not proof of source completeness or vector quality,
+and not the future generation fence or a bound on elapsed query time/memory.
