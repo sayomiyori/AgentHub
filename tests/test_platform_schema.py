@@ -111,6 +111,7 @@ def test_startup_validates_platform_before_legacy_schema(monkeypatch, enabled, r
     monkeypatch.setattr(main, "get_platform_settings",
                         lambda: SimpleNamespace(telegram_ai_enabled=enabled, read_enabled=read))
     monkeypatch.setattr(main.Base.metadata, "create_all", lambda **_: calls.append("legacy"))
+    monkeypatch.setattr(main, "require_resource_schema", lambda _: None)
     monkeypatch.setattr(main, "_refresh_storage_gauges", lambda: None)
     monkeypatch.setattr(main.mcp_client_manager, "startup", AsyncMock())
     monkeypatch.setattr(main.mcp_client_manager, "shutdown", AsyncMock())
@@ -132,4 +133,4 @@ def test_startup_validates_platform_before_legacy_schema(monkeypatch, enabled, r
         assert calls == ["revision"]
     else:
         asyncio.run(start())
-        assert calls == (["revision"] if enabled or read else []) + ["legacy", "ready"]
+        assert calls == (["revision"] if enabled or read else ["legacy"]) + ["ready"]

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from app.models.usage import UsageMetrics
@@ -41,6 +43,7 @@ class AnswerGenerator:
         db: Session | None = None,
         conversation_id: int | None = None,
         request_id: str | None = None,
+        tenant_id: UUID | None = None,
     ) -> tuple[str, list[dict], UsageMetrics]:
         context = self._build_context(chunks)
         system_prompt = (
@@ -77,6 +80,7 @@ class AnswerGenerator:
                     input_tokens=resp.usage.input_tokens,
                     output_tokens=resp.usage.output_tokens,
                     cost_usd=float(cost_usd),
+                    tenant_id=tenant_id,
                 )
         except Exception:
             answer = self._fallback_answer(question, chunks)

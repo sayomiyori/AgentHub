@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -20,16 +21,17 @@ class KnowledgeBaseTool(BaseTool):
         "required": ["query"],
     }
 
-    def __init__(self, db: Session, rag_pipeline: RAGPipeline) -> None:
+    def __init__(self, db: Session, rag_pipeline: RAGPipeline, tenant_id: UUID | None = None) -> None:
         self.db = db
         self.rag_pipeline = rag_pipeline
+        self.tenant_id = tenant_id
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
         query = str(kwargs.get("query", "")).strip()
-        top_k = int(kwargs.get("top_k", 5))
+        top_k = max(1, min(int(kwargs.get("top_k", 5)), 20))
         query_embedding = self.rag_pipeline.embedder.embed_query(query)
         candidates = self.rag_pipeline.retriever.retrieve(
-            db=self.db, query_embedding=query_embedding, top_k=max(top_k * 3, 10)
+            db=self.db, query_embedding=query_embedding, top_k=max(top_k * 3, 10), tenant_id=self.tenant_id
         )
         reranked = self.rag_pipeline.reranker.rerank(candidates, top_k=top_k)
         results = [

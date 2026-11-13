@@ -1,10 +1,14 @@
 # AgentHub
 
-Current local verification (2026-10-09): 250 tests passed with PostgreSQL/pgvector
-and Redis; Ruff and the CI Mypy scope passed. Optional semantic cache failures
-fall back to retrieval; cache entries retain their original maximum age and
-malformed data is ignored. This does not add tenant isolation to legacy RAG,
-documents or cache. Keep those standalone APIs private.
+Current local verification (2026-10-12): 275 tests passed inside the rebuilt Linux
+image with isolated PostgreSQL/pgvector and Redis; Ruff and full application
+Mypy passed. Opt-in tenant resource APIs use fresh AuthFortress authorization;
+cache entries are separated by tenant and document corpus revision. Global
+resource APIs, `/metrics` and local MCP close in every enabled platform mode.
+Prometheus scrapes receive 404 in platform mode; standalone metrics retain 200.
+No provider,
+public deployment or retrieval-quality acceptance is claimed. See
+`specs/local-hardening.md` and the tenant resource section below.
 
 [![CI](https://github.com/sayomiyori/AgentHub/actions/workflows/ci.yml/badge.svg)](https://github.com/sayomiyori/AgentHub/actions)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](#)
@@ -111,6 +115,10 @@ cp .env.example .env
 
 docker compose up --build -d
 ```
+
+The image runs API and workers as UID 10001. Fresh named upload volumes inherit
+the image directory owner. Existing upload volumes or bind mounts must grant
+UID 10001 write access before upgrading; the application never changes ownership.
 
 | Service | URL |
 |---------|-----|
@@ -350,10 +358,10 @@ MIT License. See [LICENSE](LICENSE) for details.
 ## Telegram platform migration checkpoint
 
 Platform job, usage and reply-outbox models use separate metadata from legacy
-standalone records. Telegram delivery is not implemented yet.
+standalone records. AgentHub publication and WebHook delivery are separate stages.
 `TELEGRAM_AI_ENABLED=false` keeps the standalone startup behavior. Enabling it
 requires three independent service keys, an explicit Groq model, a fixed WebHook
-origin and migration head `002_telegram_ai`; startup never stamps the database.
+origin and migration head `003_tenant_resources`; startup never stamps the database.
 
 For a new isolated PostgreSQL database, configure `DATABASE_URL` and run:
 
@@ -363,7 +371,10 @@ python -m alembic check
 ```
 
 The baseline creates five standalone tables and the vector extension; the second
-revision adds three platform tables. Do not apply the baseline blindly to an
+revision adds three platform tables; the third scopes existing resource models.
+Existing standalone databases also require this forward migration before running
+the new release. Missing resource columns stop startup with a static migration
+error; fresh standalone databases retain create_all. Do not apply the baseline blindly to an
 existing `create_all` database or automatically stamp it. Compare its actual
 schema with the frozen baseline and plan explicit operator-approved adoption.
 A rollback to `001_legacy_baseline` removes the three platform tables and requires
@@ -469,9 +480,56 @@ Both routes require one AuthFortress access bearer. Each request checks fresh
 Missing/revoked authentication returns 401; inaccessible/inactive scope returns
 404; issuer/context unavailability returns 503; invalid parameters return 422.
 Disabled routes return 404. No messages, answers, chat IDs, claims or credentials
-are returned. SQL always filters tenant and bot together. Global standalone APIs
-are unchanged, do not expose these tables and must remain private; this addition
-does not make legacy RAG, document, cache or usage routes tenant-safe.
+are returned. SQL always filters tenant and bot together. Enabling any platform
+mode closes global resource HTTP routes and local MCP. Standalone APIs remain
+available when all platform flags are false and access only legacy NULL-tenant
+rows. Tenant resource APIs are described below.
+
+## Tenant resource isolation and cache consistency
+
+`PLATFORM_TENANT_ENABLED=true` enables existing resource APIs under
+`/api/v1/tenants/{tenant_id}` and requires `AUTHFORTRESS_BASE_URL` and migration
+`003_tenant_resources`. This mode needs no WebHook service keys or inference
+worker. Each request freshly authorizes one bearer through AuthFortress; issuer
+outage fails closed with 503, invalid/revoked authentication returns 401, foreign
+tenant returns 404, and an insufficient role returns 403. Selectors in bodies or
+queries never grant access. Global `/api/v1/documents`, `/query`, `/conversations`,
+`/usage` and `/mcp` routes return 404 in every enabled platform mode.
+
+| Scoped method/path | Permission |
+|---|---|
+| `POST /documents`, `DELETE /documents/{id}` | `ai.configure` (owner) |
+| `GET /documents`, `GET /documents/{id}` | `ai.read` (owner/member) |
+| `POST /query` | `ai.read` (owner/member) |
+| `GET /conversations`, `GET /conversations/{id}/messages` | `ai.read` |
+| `GET /usage/stats` | `ai.read` |
+
+All lists accept `offset` and `limit` (default 50, maximum 100), ordered by ID.
+Unknown or foreign conversation IDs return 404 before writes or generation.
+Documents, conversations and usage retain their tenant; chunks and messages
+inherit it through the owner join. Historical NULL rows are not silently adopted.
+Bot-specific Telegram jobs/usage remain separately filtered by tenant and bot.
+
+Uploads accept UTF-8 text/Markdown or PDF with a valid signature, up to 10 MiB;
+stored names are random and successful deletion also removes the stored file
+within the configured upload directory. Queue failure returns 503 and leaves the
+record explicitly failed. This is not an antivirus or PDF parser resource limit.
+
+RAG retrieval, agent history and the local knowledge tool filter tenant. Tenant
+agents omit external MCP tools because those tools have no tenant contract.
+Existing provider and optional web-search behavior remain configured by the
+standalone settings; provider credentials and model configuration are still
+operator-managed, not a tenant credential/configuration API.
+
+Semantic cache keys combine tenant, effective model settings and a PostgreSQL
+corpus fingerprint. Successful embedding changes the immutable document revision
+in the same transaction as chunks/status; deletion changes the fingerprint.
+Old in-flight writers retain their old namespace, and Redis outages cannot
+restore stale entries after document changes. Cache hits charge no generation
+usage. An already-running request may still return its previously read corpus;
+subsequent requests use the new namespace. Direct operator SQL changes must
+update document revisions. Fingerprint computation scans scoped document metadata;
+no high-load capacity or retrieval-quality claim is made.
 
 ## Signed answer publication
 

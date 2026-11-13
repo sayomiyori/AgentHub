@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -22,9 +23,11 @@ def record_llm_call(
     input_tokens: int,
     output_tokens: int,
     cost_usd: float,
+    tenant_id: UUID | None = None,
 ) -> None:
     total = input_tokens + output_tokens
     row = LLMUsageRecord(
+        tenant_id=tenant_id,
         conversation_id=conversation_id,
         message_id=message_id,
         request_id=request_id,
@@ -40,30 +43,33 @@ def record_llm_call(
         with db.begin_nested():
             db.add(row)
             db.flush()
-    except Exception as exc:
-        logger.warning("Failed to persist LLM usage record: %s", exc)
+    except Exception:
+        logger.warning("Failed to persist LLM usage record")
 
 
-def attach_message_id(db: Session, request_id: str, message_id: int) -> None:
+def attach_message_id(db: Session, request_id: str, message_id: int, tenant_id: UUID | None = None) -> None:
     if not request_id:
         return
     try:
         with db.begin_nested():
-            db.query(LLMUsageRecord).filter(LLMUsageRecord.request_id == request_id).update(
+            db.query(LLMUsageRecord).filter(LLMUsageRecord.request_id == request_id,
+                                          LLMUsageRecord.tenant_id == tenant_id).update(
                 {LLMUsageRecord.message_id: message_id},
                 synchronize_session=False,
             )
             db.flush()
-    except Exception as exc:
-        logger.warning("Failed to attach message_id to usage rows: %s", exc)
+    except Exception:
+        logger.warning("Failed to attach message_id to usage rows")
 
 
-def get_usage_stats(db: Session) -> dict[str, Any]:
-    total_cost = float(db.query(func.sum(LLMUsageRecord.cost_usd)).scalar() or 0)
-    total_tokens = int(db.query(func.sum(LLMUsageRecord.total_tokens)).scalar() or 0)
+def get_usage_stats(db: Session, tenant_id: UUID | None = None) -> dict[str, Any]:
+    scope = LLMUsageRecord.tenant_id == tenant_id
+    total_cost = float(db.query(func.sum(LLMUsageRecord.cost_usd)).filter(scope).scalar() or 0)
+    total_tokens = int(db.query(func.sum(LLMUsageRecord.total_tokens)).filter(scope).scalar() or 0)
 
     by_provider_rows = (
         db.query(LLMUsageRecord.provider, func.sum(LLMUsageRecord.cost_usd))
+        .filter(scope)
         .group_by(LLMUsageRecord.provider)
         .all()
     )
@@ -71,6 +77,7 @@ def get_usage_stats(db: Session) -> dict[str, Any]:
 
     by_model_rows = (
         db.query(LLMUsageRecord.model, func.sum(LLMUsageRecord.cost_usd))
+        .filter(scope)
         .group_by(LLMUsageRecord.model)
         .all()
     )
@@ -79,6 +86,7 @@ def get_usage_stats(db: Session) -> dict[str, Any]:
     day_expr = func.date_trunc("day", LLMUsageRecord.created_at)
     by_day_rows = (
         db.query(day_expr, func.sum(LLMUsageRecord.cost_usd))
+        .filter(scope)
         .group_by(day_expr)
         .order_by(day_expr)
         .all()

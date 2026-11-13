@@ -19,10 +19,11 @@ class WebSearchTool(BaseTool):
     def run(self, **kwargs: Any) -> dict[str, Any]:
         query = str(kwargs.get("query", "")).strip()
         max_results = int(kwargs.get("max_results", 5))
+        params: dict[str, str | int] = {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1}
         try:
             res = requests.get(
                 "https://api.duckduckgo.com/",
-                params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+                params=params,
                 timeout=15,
             )
             payload = res.json()
@@ -47,5 +48,5 @@ class WebSearchTool(BaseTool):
                     if len(items) >= max_results:
                         break
             return {"query": query, "results": items[:max_results]}
-        except Exception as exc:
-            return {"query": query, "results": [], "error": str(exc)}
+        except Exception:
+            return {"query": query, "results": [], "error": "Web search unavailable"}

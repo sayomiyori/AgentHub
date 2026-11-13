@@ -11,6 +11,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
       LLM_PROVIDER: gemini
       LLM_FALLBACK_PROVIDER: ${LLM_FALLBACK_PROVIDER:-}
       LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-}
@@ -32,6 +33,9 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/agenthub
       REDIS_URL: redis://redis:6379/0
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
       LLM_PROVIDER: gemini
       EMBEDDING_MODEL: models/text-embedding-004
     volumes:

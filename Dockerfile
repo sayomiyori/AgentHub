@@ -8,6 +8,11 @@ RUN python -m pip install --no-cache-dir --upgrade "pip>=26.2" "setuptools>=83.0
 
 COPY . .
 
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/uploads \
+    && chown appuser:appuser /app/uploads
+USER appuser
+
 ENV PYTHONPATH=/app
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

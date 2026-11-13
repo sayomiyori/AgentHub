@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -24,6 +24,7 @@ class DatetimeTool(BaseTool):
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
         tz_name: str = str(kwargs.get("timezone", "UTC")).strip() or "UTC"
+        tz: tzinfo
         try:
             tz = ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:

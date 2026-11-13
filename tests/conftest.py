@@ -8,6 +8,7 @@ import pytest
 @pytest.fixture()
 def mock_db() -> MagicMock:
     db = MagicMock()
+    db.query.return_value.join.return_value = db.query.return_value
     db.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = []
     return db
 

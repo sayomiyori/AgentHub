@@ -1,5 +1,13 @@
 # Reproduced defects (2026-10-03)
 
+## 2026-10-12: Container processes used root unnecessarily
+
+The image omitted USER, so API and Celery workers ran as UID 0. Run both as
+UID 10001 and create the default upload directory with that owner. Existing
+bind mounts or upload volumes must explicitly grant that UID write access;
+the image never rewrites volume ownership automatically. Verify a fresh volume's
+ownership, upload/delete/worker processing and actual process UID before rollout.
+
 ## 2026-10-09: Optional semantic cache resilience
 
 Redis read/write errors escaped the optional cache and interrupted RAG requests.
@@ -11,8 +19,29 @@ renew an entry's age. Metadata rejection precedes vector comparison.
 `python -m pytest tests/test_semantic_cache_resilience.py -q`: 22 passed.
 Full suite: 250 passed; Ruff and the CI Mypy scope passed. Independent adversarial
 review approved after huge-number, malformed source and invalid UTF-8/NUL cases.
-The legacy cache remains global and has no document-change invalidation;
-it must not be exposed as tenant-safe RAG.
+At that checkpoint the legacy cache remained global without document-change
+invalidation. The 2026-10-11 closure below supersedes this limitation.
+
+## 2026-10-11: Tenant resources and stale document cache
+
+Unscoped document/conversation/usage HTTP routes and local MCP exposed shared
+records. Retrieval (including its fallback), agent knowledge/history and cache
+had no canonical tenant predicate. Deleting or embedding a document did not
+invalidate previously cached answers.
+
+Forward migration `003_tenant_resources` leaves legacy rows NULL and adds scope
+to new documents, conversations and usage. Existing routers reuse fresh
+AuthFortress `ai.read`/`ai.configure` authorization under the tenant path. Any
+enabled platform mode closes global HTTP/MCP; direct MCP callbacks also fail
+closed. Existing standalone schema upgrades require the forward migration;
+startup never performs it automatically.
+
+Cache namespaces include canonical tenant and a PostgreSQL corpus fingerprint.
+Embedding writes a new document revision atomically with its chunks; deletion
+changes the fingerprint. Real PostgreSQL/Redis regressions cover foreign/NULL
+resources, role denial, revoked/outage authorization, source/history/usage scope,
+Redis interruption and an old concurrent generation writing after committed
+delete and replacement. External MCP tools remain unavailable to tenant agents.
 
 - Cache hits returned the original generation's tokens and cost, charging the message again. `test_rag_http_cache_and_usage` reproduced `15 != 0`; cache hits now report zero incremental generation tokens/cost and create no new usage row.
 - Duplicate document tasks appended duplicate chunks (`2` stored vs `chunk_count=1`). `test_document_worker_duplicate_does_not_duplicate_chunks` reproduced this. Processing now locks the document row until the atomic final commit and skips already-ready documents.

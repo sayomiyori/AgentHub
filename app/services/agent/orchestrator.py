@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.mcp.client import mcp_client_manager
-from app.models.conversation import Message
+from app.models.conversation import Conversation, Message
 from app.services.agent.prompts.system import AGENT_SYSTEM_PROMPT
 from app.services.agent.tools.base import BaseTool
 from app.services.agent.tools.calculator import CalculatorTool
@@ -41,20 +42,22 @@ class AgentOrchestrator:
         self.llm_factory = LLMFactory()
         self.rag_pipeline = RAGPipeline()
 
-    def _build_tools(self, db: Session) -> dict[str, BaseTool]:
+    def _build_tools(self, db: Session, tenant_id: UUID | None = None) -> dict[str, BaseTool]:
         tools: list[BaseTool] = [
-            KnowledgeBaseTool(db=db, rag_pipeline=self.rag_pipeline),
+            KnowledgeBaseTool(db=db, rag_pipeline=self.rag_pipeline, tenant_id=tenant_id),
             WebSearchTool(),
             CalculatorTool(),
             DatetimeTool(),
         ]
-        tools.extend(mcp_client_manager.iter_agent_tools())
+        if tenant_id is None:
+            tools.extend(mcp_client_manager.iter_agent_tools())
         return {t.name: t for t in tools}
 
-    def _load_history(self, db: Session, conversation_id: int) -> list[dict[str, str]]:
+    def _load_history(self, db: Session, conversation_id: int, tenant_id: UUID | None = None) -> list[dict[str, str]]:
         messages = (
             db.query(Message)
-            .filter(Message.conversation_id == conversation_id)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .filter(Message.conversation_id == conversation_id, Conversation.tenant_id == tenant_id)
             .order_by(Message.id.desc())
             .limit(MAX_HISTORY_MESSAGES)
             .all()
@@ -89,15 +92,16 @@ class AgentOrchestrator:
                         "score": float(item.get("score", 0.0)),
                     })
             elif "search_documents" in name:
-                payload = result.get("result")
-                if payload is None and isinstance(result, list):
-                    payload = result
+                payload: Any = result if isinstance(result, list) else result.get("result")
+                items: Any
                 if isinstance(payload, list):
                     items = payload
                 elif isinstance(payload, dict):
                     items = payload.get("results", payload.get("items", []))
                 else:
                     items = []
+                if not isinstance(items, list):
+                    continue
                 for item in items:
                     if not isinstance(item, dict):
                         continue
@@ -105,7 +109,7 @@ class AgentOrchestrator:
                         "chunk_id": None,
                         "document_title": str(item.get("document_title", "")),
                         "chunk_text_preview": str(item.get("chunk_text", ""))[:220],
-                        "score": float(item.get("relevance_score", item.get("score", 0.0))),
+                        "score": float(item.get("relevance_score", item.get("score", 0.0)) or 0),
                     })
         return kb_sources
 
@@ -118,9 +122,10 @@ class AgentOrchestrator:
         provider: str | None = None,
         model: str | None = None,
         request_id: str | None = None,
+        tenant_id: UUID | None = None,
     ) -> dict[str, Any]:
-        tools_map = self._build_tools(db)
-        history = self._load_history(db, conversation_id)
+        tools_map = self._build_tools(db, tenant_id)
+        history = self._load_history(db, conversation_id, tenant_id)
         tool_results: list[str] = []
         tools_called: list[dict[str, Any]] = []
         total_tokens = 0
@@ -153,10 +158,11 @@ class AgentOrchestrator:
                         input_tokens=resp.usage.input_tokens,
                         output_tokens=resp.usage.output_tokens,
                         cost_usd=float(resp.usage.cost_usd),
+                        tenant_id=tenant_id,
                     )
-            except Exception as exc:
+            except Exception:
                 return {
-                    "answer": f"Agent error: {exc}",
+                    "answer": "Agent generation unavailable.",
                     "tools_called": tools_called,
                     "tokens_used": total_tokens,
                     "cost_usd": round(total_cost, 8),
@@ -175,8 +181,8 @@ class AgentOrchestrator:
                     continue
                 try:
                     result = tool.run(**arguments)
-                except Exception as exc:
-                    result = {"error": str(exc)}
+                except Exception:
+                    result = {"error": "Tool execution unavailable"}
                 tools_called.append({"tool": tool_name, "arguments": arguments, "result": result})
                 tool_results.append(f"[tool={tool_name}] {json.dumps(result, ensure_ascii=False)}")
             else:

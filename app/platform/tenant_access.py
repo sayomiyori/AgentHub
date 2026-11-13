@@ -18,7 +18,7 @@ class AuthorizedContext(BaseModel):
     user_id: UUID
     tenant_id: UUID
     role: Literal["owner", "member"]
-    permission: Literal["ai.read"]
+    permission: Literal["ai.read", "ai.configure"]
     allowed: StrictBool
 
 
@@ -27,7 +27,8 @@ class TenantAccessClient:
         self.config = config
         self.transport = transport
 
-    async def authorize(self, tenant_id: UUID, bearer: SecretStr) -> None:
+    async def authorize(self, tenant_id: UUID, bearer: SecretStr,
+                        permission: Literal["ai.read", "ai.configure"] = "ai.read") -> None:
         try:
             async with (
                 asyncio.timeout(8),
@@ -37,11 +38,13 @@ class TenantAccessClient:
                 async with client.stream(
                     "POST", f"{self.config.auth_url.rstrip('/')}/api/v1/tenants/{tenant_id}/authorize",
                     headers={"Authorization": "Bearer " + bearer.get_secret_value(), "Accept-Encoding": "identity"},
-                    json={"permission": "ai.read"},
+                    json={"permission": permission},
                 ) as response:
                     if response.status_code == 401:
                         raise HTTPException(401, "Invalid authentication")
-                    if response.status_code in {403, 404}:
+                    if response.status_code == 403:
+                        raise HTTPException(403, "Insufficient permission")
+                    if response.status_code == 404:
                         raise HTTPException(404, "Scope not found")
                     if (response.status_code != 200
                         or response.headers.get("content-encoding", "identity") != "identity"
@@ -54,7 +57,8 @@ class TenantAccessClient:
                             raise ValueError()
                         body.extend(chunk)
                     context = AuthorizedContext.model_validate_json(json.dumps(strict_json(bytes(body))))
-                    if context.tenant_id != tenant_id or not context.allowed:
+                    if (context.tenant_id != tenant_id or not context.allowed or context.permission != permission
+                        or (permission == "ai.configure" and context.role != "owner")):
                         raise ValueError()
         except (httpx.HTTPError, TimeoutError, ValueError, UnicodeError, RecursionError):
             raise HTTPException(503, "Authorization unavailable") from None

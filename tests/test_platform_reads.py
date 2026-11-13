@@ -151,7 +151,7 @@ def test_disabled_requires_no_external_work(api):
     assert api[2]['calls'] == [] and api[2]['queries'] == 0
 
 
-@pytest.mark.parametrize('status,expected', [(401, 401), (403, 404), (404, 404), (429, 503),
+@pytest.mark.parametrize('status,expected', [(401, 401), (403, 403), (404, 404), (429, 503),
                                            (500, 503), (302, 503)])
 def test_issuer_denial_and_outage(api, status, expected):
     state = api[2]

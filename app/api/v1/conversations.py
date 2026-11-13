@@ -1,14 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.conversation import Conversation, Message
+from app.platform.resource_access import read_scope
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
 class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     role: str
     content: str
@@ -16,19 +20,22 @@ class MessageOut(BaseModel):
     cost_usd: float
     sources: list[dict]
 
-    class Config:
-        from_attributes = True
-
 
 @router.get("")
-def list_conversations(db: Session = Depends(get_db)) -> list[dict]:
-    conversations = db.query(Conversation).order_by(Conversation.created_at.desc()).all()
+def list_conversations(tenant_id: UUID | None = Depends(read_scope), offset: int = Query(0, ge=0),
+                       limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db)) -> list[dict]:
+    conversations = (db.query(Conversation).filter(Conversation.tenant_id == tenant_id)
+                     .order_by(Conversation.id).offset(offset).limit(limit).all())
     return [{"id": c.id, "title": c.title, "created_at": c.created_at} for c in conversations]
 
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
-def get_messages(conversation_id: int, db: Session = Depends(get_db)) -> list[Message]:
-    conversation = db.get(Conversation, conversation_id)
+def get_messages(conversation_id: int, tenant_id: UUID | None = Depends(read_scope),
+                 offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
+                 db: Session = Depends(get_db)) -> list[Message]:
+    conversation = (db.query(Conversation)
+                    .filter(Conversation.id == conversation_id, Conversation.tenant_id == tenant_id).first())
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return db.query(Message).filter(Message.conversation_id == conversation_id).order_by(Message.id.asc()).all()
+    return (db.query(Message).filter(Message.conversation_id == conversation_id)
+            .order_by(Message.id.asc()).offset(offset).limit(limit).all())
